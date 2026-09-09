@@ -124,6 +124,7 @@
   .turn .said{font-size:16px; line-height:1.5}
   .turn.interim .said{color:var(--ink-soft); font-style:italic}
   .thinking{color:var(--ink-soft); font-size:14px; padding-left:15px}
+  .raw{color:var(--ink-soft); font-size:12.5px; margin-top:4px; line-height:1.5}
   .opencue{color:var(--ink-soft); font-size:14.5px; line-height:1.6; padding:22px 15px 0;
            font-style:italic}
 
@@ -213,6 +214,13 @@
     <option value="en-IN">영어 (인도)</option>
   </select>
   <p class="note">인식이 자꾸 틀리면 미국을 먼저 시도해 보세요. 비원어민 발음은 미국 모델이 더 잘 잡는 경우가 많습니다.</p>
+
+  <label for="showraw">인식 원문 함께 보기</label>
+  <select id="showraw">
+    <option value="off" selected>끄기</option>
+    <option value="on">켜기 — 고치기 전 원문을 회색으로 표시</option>
+  </select>
+  <p class="note">엔진이 실제로 뭐라고 들었는지 확인용입니다. 원문이 이미 엉망이면 엔진 문제, 원문은 멀쩡한데 결과가 이상하면 교정 문제입니다.</p>
 
   <label for="asrfix">받아쓰기 자동 교정</label>
   <select id="asrfix">
@@ -377,6 +385,8 @@ const store = {
   set srl(v){ try{ localStorage.setItem("osce.srlang", v); }catch(e){} },
   get fix(){ try{ return localStorage.getItem("osce.asrfix") || "on"; }catch(e){ return "on"; } },
   set fix(v){ try{ localStorage.setItem("osce.asrfix", v); }catch(e){} },
+  get dbg(){ try{ return localStorage.getItem("osce.showraw") || "off"; }catch(e){ return "off"; } },
+  set dbg(v){ try{ localStorage.setItem("osce.showraw", v); }catch(e){} },
   get elk(){ try{ return localStorage.getItem("osce.elkey") || ""; }catch(e){ return ""; } },
   set elk(v){ try{ localStorage.setItem("osce.elkey", v); }catch(e){} },
   get elv(){ try{ return localStorage.getItem("osce.elvoice") || ""; }catch(e){ return ""; } },
@@ -625,10 +635,18 @@ function mergeSpeech(acc, part){
   if(!a) return b;
   const la = a.toLowerCase(), lb = b.toLowerCase();
   if(lb.startsWith(la)) return b;          // 앞 조각이 길어진 것
-  if(la.endsWith(lb) || la.includes(lb)) return a;   // 이미 들어 있는 내용
-  const max = Math.min(la.length, lb.length);
-  for(let k = max; k >= 4; k--){           // 꼬리와 머리가 겹치면 그만큼 잘라낸다
-    if(la.slice(-k) === lb.slice(0, k)) return a + b.slice(k);
+  if(la.endsWith(lb)) return a;            // 이미 끝에 들어 있는 내용
+
+  // 겹침은 단어 단위로만 본다. 글자 단위로 자르면
+  // "I will explain" + "explaining takes time" 이 "explaining takes time" 으로 뭉개진다.
+  const wa = a.split(/\s+/), wb = b.split(/\s+/);
+  const max = Math.min(wa.length, wb.length, 8);
+  const norm = s => s.toLowerCase().replace(/[^a-z0-9']/g, "");
+  for(let k = max; k >= 1; k--){
+    let same = true;
+    for(let i = 0; i < k; i++)
+      if(norm(wa[wa.length - k + i]) !== norm(wb[i])){ same = false; break; }
+    if(same) return wa.concat(wb.slice(k)).join(" ");
   }
   return a + " " + b;
 }
@@ -663,6 +681,24 @@ const LEX = ("periodontal periodontitis periodontist gingivitis gingival gingiva
  "maxillary mandibular buccal lingual palatal mesial distal " +
  "antral sinus perforation swelling infection cellulitis lymph node").split(/\s+/);
 const LEXSET = new Set(LEX);
+
+/* 후보 고르기에는 '일상 대화에 절대 안 나오는 말'만 쓴다.
+   explain, options, pain 같은 흔한 낱말로 후보를 고르면
+   멀쩡한 문장이 엉뚱한 후보로 바뀐다. */
+const TECH = new Set(("periodontal periodontitis periodontist gingivitis gingival gingiva " +
+ "caries carious dentine dentin pulpitis pulpal periapical amalgam composite " +
+ "prosthodontic prosthesis endodontic endodontics pulpotomy pulpectomy obturation " +
+ "occlusal occlusion malocclusion premolar incisor molar cusp fissure sealant exodontia " +
+ "alveolar osteitis haemostasis fluoride varnish calculus debridement furcation " +
+ "halitosis xerostomia bruxism radiograph bitewing panoramic orthopantomogram " +
+ "anaesthetic anaesthesia anesthetic analgesia analgesic infiltration lignocaine articaine " +
+ "paracetamol ibuprofen amoxicillin metronidazole chlorhexidine " +
+ "bisphosphonate bisphosphonates alendronate denosumab osteonecrosis osteoporosis " +
+ "anticoagulant warfarin apixaban rivaroxaban clopidogrel " +
+ "maxillary mandibular buccal lingual palatal mesial distal " +
+ "cellulitis stomatitis candida cheilitis avulsion luxation " +
+ "hypomineralisation hypoplasia orthodontic orthodontics prophylaxis hygienist " +
+ "gingivae plaque calculus abscess").split(/\s+/));
 
 /* 왼쪽처럼 들리면 오른쪽으로 고친다 */
 const MISHEARD = [
@@ -739,16 +775,45 @@ function domainScore(txt){
   return s;
 }
 
-/* 인식기가 준 후보 중 치과 용어가 가장 많이 살아 있는 것을 고른다 */
+/* 두 낱말이 정말 비슷하게 들리는지 — 한두 글자 차이일 때만 바꾼다 */
+function editDist(a, b){
+  if(Math.abs(a.length - b.length) > 2) return 9;
+  const d = Array.from({length:a.length+1}, (_, i) => [i].concat(new Array(b.length).fill(0)));
+  for(let j = 0; j <= b.length; j++) d[0][j] = j;
+  for(let i = 1; i <= a.length; i++)
+    for(let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+/* 후보를 통째로 바꾸지 않는다. 1순위 문장을 그대로 두고,
+   길이가 같은 후보에서 '전문용어 한 단어'만 끌어온다.
+   이렇게 해야 멀쩡한 일반 문장이 망가지지 않는다. */
 function bestAlt(res){
-  let best = res[0] ? res[0].transcript : "";
-  let bestS = domainScore(best) + (res[0] && res[0].confidence ? res[0].confidence : 0) * 0.4 + 0.25;
-  for(let j = 1; j < res.length; j++){
-    const t = res[j].transcript;
-    const s = domainScore(t) + (res[j].confidence || 0) * 0.4;
-    if(s > bestS){ best = t; bestS = s; }
+  const top = res[0] ? res[0].transcript : "";
+  if(!top || res.length < 2) return top;
+
+  const w0 = top.split(/\s+/);
+  const out = w0.slice();
+  let swapped = 0;
+
+  for(let j = 1; j < res.length && swapped < 2; j++){
+    const wj = (res[j].transcript || "").split(/\s+/);
+    if(wj.length !== w0.length) continue;          // 길이가 다르면 손대지 않는다
+    let diff = 0;
+    for(let i = 0; i < w0.length; i++) if(w0[i].toLowerCase() !== wj[i].toLowerCase()) diff++;
+    if(diff === 0 || diff > 2) continue;           // 많이 다른 후보는 다른 문장이다
+    for(let i = 0; i < w0.length && swapped < 2; i++){
+      const a = out[i].toLowerCase().replace(/[^a-z']/g, "");
+      const b = wj[i].toLowerCase().replace(/[^a-z']/g, "");
+      if(a === b) continue;
+      if(b.length < 5) continue;                   // 짧은 낱말은 건드리지 않는다
+      if(!TECH.has(b) || TECH.has(a)) continue;
+      if(editDist(a, b) > 2) continue;             // 소리가 비슷할 때만 바꾼다
+      out[i] = wj[i]; swapped++;
+    }
   }
-  return best;
+  return out.join(" ");
 }
 
 function repairTerms(txt){
@@ -782,8 +847,20 @@ async function aiRepair(text){
     catch(e2){ return text; }
   }
   out = String(out || "").replace(/^["'\u201C]|["'\u201D]$/g, "").trim();
-  const a = text.split(/\s+/).length, b = out.split(/\s+/).length;
-  if(!out || b < a * 0.7 || b > a * 1.3) return text;  // 너무 많이 바뀌면 원문을 지킨다
+  if(!out) return text;
+
+  // 단어 수가 같고, 바뀐 단어가 전부 전문용어일 때만 받아들인다.
+  // 그 외에는 원문을 지킨다 — 문장을 통째로 고쳐 쓰는 걸 막는다.
+  const wa = text.split(/\s+/), wb = out.split(/\s+/);
+  if(wa.length !== wb.length) return text;
+  const bare = s => s.toLowerCase().replace(/[^a-z']/g, "");
+  let changed = 0;
+  for(let i = 0; i < wa.length; i++){
+    if(bare(wa[i]) === bare(wb[i])) continue;
+    changed++;
+    if(!TECH.has(bare(wb[i]))) return text;        // 전문용어가 아닌 교체는 거부
+  }
+  if(changed > Math.max(2, wa.length * 0.2)) return text;
   return out;
 }
 
@@ -813,9 +890,10 @@ function micIdle(){
 
 function flushTurn(){
   clearInterim();
-  const said = repairTerms((S.buffer || "").trim());
+  const raw = (S.buffer || "").trim();
+  const said = repairTerms(raw);
   S.buffer = ""; S.carry = "";
-  if(said) submitTurn(said);
+  if(said) submitTurn(said, raw);
 }
 
 function listen(){
@@ -971,10 +1049,13 @@ function drawScript(){
       ' 님이 앉아서 기다리고 있습니다. 마이크를 탭하고 먼저 인사하세요.</div>';
     return;
   }
-  $("script").innerHTML = S.turns.map(t =>
-    '<div class="turn '+(t.role==="dr"?"dr":"pt")+'">' +
+  $("script").innerHTML = S.turns.map(t => {
+    const showRaw = store.dbg === "on" && t.role === "dr" && t.raw && t.raw !== t.text;
+    return '<div class="turn '+(t.role==="dr"?"dr":"pt")+'">' +
       '<div class="who">'+(t.role==="dr" ? "Dentist" : esc(S.kase.patient.name))+"</div>" +
-      '<div class="said">'+esc(t.text)+"</div></div>").join("");
+      '<div class="said">'+esc(t.text)+"</div>" +
+      (showRaw ? '<div class="raw">들린 원문: '+esc(t.raw)+"</div>" : "") + "</div>";
+  }).join("");
   window.scrollTo(0, document.body.scrollHeight);
 }
 function drawInterim(txt){
@@ -1130,10 +1211,10 @@ async function patientReply(){
   return claude(patientSystem(), msgs, 220);
 }
 
-async function submitTurn(text){
+async function submitTurn(text, raw){
   if(S.busy) return;
   S.busy = true; S.busyAt = Date.now(); $("mic").disabled = true;
-  const turn = { role:"dr", text:text };
+  const turn = { role:"dr", text:text, raw:(raw || text) };
   try{
     S.turns.push(turn);
     drawScript(); thinking(true);
@@ -1359,6 +1440,7 @@ $("go").onclick = () => {
   store.end = $("endmode").value;
   store.srl = $("srlang").value;
   store.fix = $("asrfix").value;
+  store.dbg = $("showraw").value;
   store.eng = $("engine").value;
   if(store.eng === "11"){
     store.elk = $("elKey").value.trim();
@@ -1605,6 +1687,7 @@ $("rec").value = store.rec;
 $("endmode").value = store.end;
 $("srlang").value = store.srl;
 $("asrfix").value = store.fix;
+$("showraw").value = store.dbg;
 $("engine").value = store.eng;
 $("elKey").value = store.elk;
 toggleEl();
