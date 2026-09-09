@@ -326,6 +326,7 @@ const S = {
   metas: [], kase: null,
   turns: [],            // {role:'dr'|'pt', text}
   recog: null, listening: false, want: false, buffer: "", carry: "", silT: null,
+  stopping: false, deadT: null, restarts: 0, busyAt: 0,
   readT: null, stnT: null, stnLeft: 0,
   speaking: null, busy: false
 };
@@ -346,11 +347,15 @@ function setClock(frac, state){
   $("clock").className = state || "";
 }
 function fail(msg){
-  const d = document.createElement("div");
-  d.className = "err"; d.textContent = msg;
-  document.querySelector(".stage.on").prepend(d);
-  d.scrollIntoView({block:"center"});
-  setTimeout(() => d.remove(), 12000);
+  try{
+    const d = document.createElement("div");
+    d.className = "err"; d.textContent = msg;
+    const stage = document.querySelector(".stage.on");
+    if(!stage){ alert(msg); return; }
+    stage.prepend(d);
+    if(d.scrollIntoView) d.scrollIntoView({block:"center"});
+    setTimeout(() => d.remove(), 12000);
+  }catch(e){ /* 알림 하나 때문에 복구가 막히면 안 된다 */ }
 }
 
 /* ══════════ 저장 ══════════ */
@@ -771,9 +776,9 @@ async function aiRepair(text){
   ].join("\n");
   const msgs = [{ role:"user", content:text }];
   let out = "";
-  try{ out = await claude(sys, msgs, 300, FIXMODEL); }
+  try{ out = await claude(sys, msgs, 300, FIXMODEL, 12000); }
   catch(e){
-    try{ out = await claude(sys, msgs, 300); }        // 모델 이름이 막히면 쓰던 모델로
+    try{ out = await claude(sys, msgs, 300, null, 12000); }   // 모델 이름이 막히면 쓰던 모델로
     catch(e2){ return text; }
   }
   out = String(out || "").replace(/^["'\u201C]|["'\u201D]$/g, "").trim();
@@ -782,18 +787,59 @@ async function aiRepair(text){
   return out;
 }
 
+/* ══════════ 마이크 되살리기 ══════════
+   인식기가 죽어도 버튼만은 반드시 살아 있어야 한다.
+   무슨 일이 있어도 micIdle() 을 거치면 다시 탭할 수 있는 상태로 돌아온다. */
+
+function killRecog(){
+  const r = S.recog;
+  S.recog = null;
+  if(!r) return;
+  try{ r.onstart = r.onresult = r.onerror = r.onend = null; }catch(e){}
+  try{ r.abort(); }catch(e){}
+  try{ r.stop(); }catch(e){}
+}
+
+function micIdle(){
+  clearTimeout(S.silT); clearTimeout(S.deadT);
+  S.listening = false; S.want = false; S.stopping = false; S.restarts = 0;
+  const m = $("mic");
+  if(m){
+    m.classList.remove("live");
+    m.textContent = "탭하고 말하기";
+    m.disabled = !!S.busy;          // 환자가 대답하는 중일 때만 잠근다
+  }
+}
+
+function flushTurn(){
+  clearInterim();
+  const said = repairTerms((S.buffer || "").trim());
+  S.buffer = ""; S.carry = "";
+  if(said) submitTurn(said);
+}
+
 function listen(){
   if(!SR){ typeTurn(); return; }
+  if(S.busy) return;                   // 환자가 대답하는 중
 
-  if(S.listening){                      // 두 번째 탭 = 기다리지 않고 즉시 전송
+  if(S.listening){
+    if(S.stopping){                    // 멈추라고 했는데 반응이 없다 = 인식기가 죽었다
+      killRecog(); micIdle(); flushTurn(); return;
+    }
+    S.stopping = true;                 // 두 번째 탭 = 기다리지 않고 즉시 전송
     S.want = false;
     clearTimeout(S.silT);
-    try{ S.recog.stop(); }catch(e){}
+    try{ S.recog.stop(); }
+    catch(e){ killRecog(); micIdle(); flushTurn(); return; }
+    clearTimeout(S.deadT);             // 1.5초 안에 안 끝나면 강제로 마무리한다
+    S.deadT = setTimeout(() => { killRecog(); micIdle(); flushTurn(); }, 1500);
     return;
   }
 
   speechSynthesis && speechSynthesis.cancel();
   S.want = true;
+  S.stopping = false;
+  S.restarts = 0;
   S.buffer = "";
   S.carry = "";
   startRecog();
@@ -807,25 +853,41 @@ function armSilence(){
   S.silT = setTimeout(() => {
     if(S.want && S.buffer.trim()){      // 뭔가 말했고 아직 듣는 중이면 전송
       S.want = false;
-      try{ S.recog.stop(); }catch(e){}
+      S.stopping = true;
+      try{ S.recog.stop(); }
+      catch(e){ killRecog(); micIdle(); flushTurn(); return; }
+      clearTimeout(S.deadT);
+      S.deadT = setTimeout(() => { killRecog(); micIdle(); flushTurn(); }, 1500);
     }
   }, SILENCE_MS);
 }
 
 function startRecog(){
-  if(S.recog){                        // 예전 인식기가 남아 있으면 확실히 끊는다
-    try{ S.recog.onresult = null; S.recog.onend = null; S.recog.onerror = null; }catch(e){}
-    try{ S.recog.abort(); }catch(e){}
-  }
-  const r = new SR();
+  killRecog();                          // 예전 인식기가 남아 있으면 확실히 끊는다
+  let r;
+  try{ r = new SR(); }
+  catch(e){ micIdle(); fail("음성인식을 시작할 수 없습니다. '직접 입력'을 쓰세요."); return; }
   r.lang = store.srl || "en-AU";
   r.interimResults = true;
   r.continuous = true;                  // 안드로이드는 이걸로 계속 듣는다
   r.maxAlternatives = 5;                // 후보를 여러 개 받아 치과 용어가 살아 있는 것을 고른다
   S.recog = r;
 
+  // 켜지지도, 오류를 내지도 않고 조용히 죽는 기기가 있다
+  clearTimeout(S.deadT);
+  S.deadT = setTimeout(() => {
+    if(S.recog === r && !S.listening){
+      killRecog(); micIdle();
+      fail("마이크가 응답하지 않습니다. 한 번 더 탭해 보세요.");
+    }
+  }, 4000);
+
   r.onstart = () => {
+    if(S.recog !== r) return;
+    clearTimeout(S.deadT);
     S.listening = true;
+    S.stopping = false;
+    $("mic").disabled = false;
     $("mic").classList.add("live");
     $("mic").textContent = store.end === "auto"
       ? "듣는 중 — 멈추면 자동 전송" : "듣는 중 — 다 말하면 다시 탭";
@@ -834,6 +896,7 @@ function startRecog(){
 
   r.onresult = e => {
     if(S.recog !== r) return;         // 물러난 인식기의 뒤늦은 결과는 버린다
+    S.restarts = 0;                   // 들리고 있다 = 정상이다
     // 크롬은 결과 목록 전체를 다시 보낸다. 이어 붙이면 같은 말이 겹친다.
     let fin = "", interim = "";
     for(let i = 0; i < e.results.length; i++){
@@ -846,36 +909,53 @@ function startRecog(){
   };
 
   r.onerror = e => {
-    if(e.error === "not-allowed"){
-      S.want = false;
-      fail("마이크 권한이 거부됐습니다. 사파리 설정에서 허용하세요.");
-    } else if(e.error === "no-speech"){
-      /* 조용했을 뿐 — onend 에서 알아서 다시 켠다 */
-    } else if(e.error !== "aborted"){
-      S.want = false;
-      fail("음성인식 오류: " + e.error);
+    if(S.recog !== r) return;
+    const kind = e && e.error;
+    if(kind === "aborted") return;                 // 우리가 끊은 것
+    if(kind === "no-speech") return;               // 조용했을 뿐 — onend 가 다시 켠다
+
+    S.want = false;                                // 여기서부터는 이어 듣지 않는다
+    // onend 가 안 오는 기기가 있다 — 안내보다 복구를 먼저 걸어 둔다
+    clearTimeout(S.deadT);
+    S.deadT = setTimeout(() => {
+      if(S.recog === r){ killRecog(); micIdle(); flushTurn(); }
+    }, 800);
+    if(kind === "not-allowed" || kind === "service-not-allowed"){
+      fail("마이크 권한이 거부됐습니다. 브라우저 설정에서 허용한 뒤 다시 탭하세요.");
+    }else if(kind === "network"){
+      fail("음성인식 서버에 닿지 못했습니다. 다시 탭하면 이어서 할 수 있습니다.");
+    }else{
+      fail("음성인식 오류(" + kind + "). 다시 탭하면 이어서 할 수 있습니다.");
     }
   };
 
   r.onend = () => {
     if(S.recog !== r) return;         // 물러난 인식기의 종료는 무시
-    clearTimeout(S.silT);
+    clearTimeout(S.silT); clearTimeout(S.deadT);
+
     if(S.want){                         // iOS가 멋대로 끊은 것 — 다시 켠다
       S.carry = S.buffer ? S.buffer.trim() : "";
-      setTimeout(() => { if(S.want){ try{ startRecog(); }catch(e){ S.want = false; } } }, 200);
+      S.restarts++;
+      if(S.restarts > 10){              // 계속 끊긴다 = 마이크가 정상이 아니다
+        killRecog(); micIdle();
+        fail("음성인식이 자꾸 끊깁니다. 다시 탭하거나 '직접 입력'을 쓰세요.");
+        flushTurn(); return;
+      }
+      setTimeout(() => {
+        if(S.want && S.recog === r){ try{ startRecog(); }catch(e){ micIdle(); } }
+      }, 200);
       return;
     }
-    S.listening = false;
-    $("mic").classList.remove("live");
-    $("mic").textContent = "탭하고 말하기";
-    clearInterim();
-    const said = repairTerms(S.buffer.trim());
-    S.buffer = ""; S.carry = "";
-    if(said) submitTurn(said);
+
+    micIdle();
+    flushTurn();
   };
 
   try{ r.start(); }
-  catch(e){ S.want = false; fail("마이크를 시작할 수 없습니다. 한 번 더 탭해 보세요."); }
+  catch(e){
+    killRecog(); micIdle();
+    fail("마이크를 시작할 수 없습니다. 한 번 더 탭해 보세요.");
+  }
 }
 
 function typeTurn(){
@@ -919,25 +999,38 @@ function thinking(on){
 }
 
 /* ══════════ Claude 호출 ══════════ */
-async function claude(system, messages, maxTokens, modelOverride){
+async function claude(system, messages, maxTokens, modelOverride, timeoutMs){
   const key = store.k;
   if(!key) throw new Error("API 키가 없습니다.");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({
-      model: modelOverride || store.m,
-      max_tokens: maxTokens || 400,
-      system: [{ type:"text", text:system,
-                 cache_control:{ type:"ephemeral" } }],
-      messages: messages
-    })
-  });
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+  const limit = timeoutMs || 90000;              // 응답이 영영 안 오면 끊는다
+  const bell = ac ? setTimeout(() => ac.abort(), limit) : null;
+  let res;
+  try{
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: ac ? ac.signal : undefined,
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: modelOverride || store.m,
+        max_tokens: maxTokens || 400,
+        system: [{ type:"text", text:system,
+                   cache_control:{ type:"ephemeral" } }],
+        messages: messages
+      })
+    });
+  }catch(e){
+    if(e && e.name === "AbortError")
+      throw new Error("응답이 너무 오래 걸려 취소했습니다. 다시 탭해 보세요.");
+    throw new Error("네트워크에 닿지 못했습니다. 연결을 확인하고 다시 탭하세요.");
+  }finally{
+    if(bell) clearTimeout(bell);
+  }
   if(!res.ok){
     let detail = "";
     try{ const j = await res.json(); detail = (j.error && j.error.message) || ""; }catch(e){}
@@ -1039,11 +1132,11 @@ async function patientReply(){
 
 async function submitTurn(text){
   if(S.busy) return;
-  S.busy = true; $("mic").disabled = true;
+  S.busy = true; S.busyAt = Date.now(); $("mic").disabled = true;
   const turn = { role:"dr", text:text };
-  S.turns.push(turn);
-  drawScript(); thinking(true);
   try{
+    S.turns.push(turn);
+    drawScript(); thinking(true);
     const fixed = await aiRepair(text);          // 잘못 들린 용어만 조용히 바로잡는다
     if(fixed && fixed !== text){ turn.text = fixed; drawScript(); thinking(true); }
     const reply = await patientReply();
@@ -1055,7 +1148,8 @@ async function submitTurn(text){
     thinking(false);
     fail(err.message);
   }finally{
-    S.busy = false; $("mic").disabled = false;
+    S.busy = false; S.busyAt = 0;
+    micIdle();                                   // 무슨 일이 있어도 버튼은 되살린다
   }
 }
 
@@ -1202,6 +1296,13 @@ function runStation(){
   S.stnLeft = S.kase.stationSeconds || 600;
   const total = S.stnLeft;
   const tick = () => {
+    // 어떤 이유로든 버튼이 잠긴 채 남아 있으면 풀어 준다
+    const m = $("mic");
+    if(m && m.disabled && !S.busy) m.disabled = false;
+    if(S.busy && S.busyAt && Date.now() - S.busyAt > 100000){
+      S.busy = false; S.busyAt = 0; thinking(false); micIdle();
+      fail("응답이 오지 않아 취소했습니다. 다시 탭하세요.");
+    }
     $("stnClock").textContent = mmss(S.stnLeft);
     const st = S.stnLeft <= 0 ? "over" : (S.stnLeft <= 120 ? "warn" : "");
     setClock(1 - Math.max(0,S.stnLeft)/total, st);
