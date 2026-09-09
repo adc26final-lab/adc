@@ -124,6 +124,8 @@
   .turn .said{font-size:16px; line-height:1.5}
   .turn.interim .said{color:var(--ink-soft); font-style:italic}
   .thinking{color:var(--ink-soft); font-size:14px; padding-left:15px}
+  .opencue{color:var(--ink-soft); font-size:14.5px; line-height:1.6; padding:22px 15px 0;
+           font-style:italic}
 
   /* mic */
   .micbar{position:sticky; bottom:0; padding:14px 0 calc(14px + env(safe-area-inset-bottom));
@@ -181,7 +183,7 @@
   <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
 
   <div id="compat"></div>
-  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v9 · 롤플레이</p>
+  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v10 · 롤플레이 · 내가 먼저 인사</p>
 
 
   <label for="key">Anthropic API 키</label>
@@ -202,6 +204,22 @@
     <option value="tap" selected>탭해서 끝내기</option>
     <option value="auto">멈추면 자동 (1.6초)</option>
   </select>
+
+  <label for="srlang">음성인식 언어</label>
+  <select id="srlang">
+    <option value="en-AU" selected>영어 (호주)</option>
+    <option value="en-GB">영어 (영국)</option>
+    <option value="en-US">영어 (미국)</option>
+    <option value="en-IN">영어 (인도)</option>
+  </select>
+  <p class="note">인식이 자꾸 틀리면 미국을 먼저 시도해 보세요. 비원어민 발음은 미국 모델이 더 잘 잡는 경우가 많습니다.</p>
+
+  <label for="asrfix">받아쓰기 자동 교정</label>
+  <select id="asrfix">
+    <option value="on" selected>켜기 — 잘못 들린 치과 용어만 바로잡음</option>
+    <option value="off">끄기 — 들린 그대로 둠</option>
+  </select>
+  <p class="note">문법과 표현은 절대 손대지 않습니다. 채점은 내가 실제로 말한 영어 그대로 받습니다.</p>
 
   <label for="engine">환자 목소리</label>
   <select id="engine">
@@ -350,6 +368,10 @@ const store = {
   set end(v){ try{ localStorage.setItem("osce.end", v); }catch(e){} },
   get eng(){ try{ return localStorage.getItem("osce.engine") || "tts"; }catch(e){ return "tts"; } },
   set eng(v){ try{ localStorage.setItem("osce.engine", v); }catch(e){} },
+  get srl(){ try{ return localStorage.getItem("osce.srlang") || "en-AU"; }catch(e){ return "en-AU"; } },
+  set srl(v){ try{ localStorage.setItem("osce.srlang", v); }catch(e){} },
+  get fix(){ try{ return localStorage.getItem("osce.asrfix") || "on"; }catch(e){ return "on"; } },
+  set fix(v){ try{ localStorage.setItem("osce.asrfix", v); }catch(e){} },
   get elk(){ try{ return localStorage.getItem("osce.elkey") || ""; }catch(e){ return ""; } },
   set elk(v){ try{ localStorage.setItem("osce.elkey", v); }catch(e){} },
   get elv(){ try{ return localStorage.getItem("osce.elvoice") || ""; }catch(e){ return ""; } },
@@ -606,6 +628,160 @@ function mergeSpeech(acc, part){
   return a + " " + b;
 }
 
+/* ══════════ 받아쓰기 정확도 ══════════
+   1) 후보 여러 개 중에 치과 용어가 많이 들어간 것을 고른다
+   2) 자주 틀리는 발음을 표로 바로잡는다
+   3) (설정에서 켜면) 마지막으로 AI가 용어만 손본다
+   아래 두 표는 마음대로 고쳐 쓰세요. 쓸수록 채워 넣으면 정확도가 올라갑니다. */
+
+/* 이 단어가 들어 있는 후보를 더 믿는다 */
+const LEX = ("periodontal periodontitis periodontist gingivitis gingival gingiva caries carious " +
+ "cavity cavities decay enamel dentine dentin pulp pulpitis pulpal abscess apical periapical " +
+ "amalgam composite restoration restore filling crown bridge denture dentures implant veneer " +
+ "molar molars premolar incisor canine occlusal occlusion malocclusion cusp fissure sealant " +
+ "extraction extract exodontia socket alveolar osteitis haemostasis bleeding suture " +
+ "endodontic endodontics root canal pulpotomy pulpectomy obturation " +
+ "fluoride fluoridated varnish plaque calculus scaling debridement probing pocket recession " +
+ "mobility furcation bleeding halitosis xerostomia bruxism grinding clenching " +
+ "radiograph radiographic bitewing periapical panoramic orthopantomogram " +
+ "anaesthetic anaesthesia analgesia analgesic infiltration block lignocaine articaine " +
+ "paracetamol ibuprofen amoxicillin metronidazole chlorhexidine antibiotic antibiotics " +
+ "bisphosphonate bisphosphonates alendronate denosumab osteonecrosis osteoporosis " +
+ "anticoagulant warfarin apixaban rivaroxaban clopidogrel aspirin " +
+ "diabetes diabetic hypertension asthma allergy allergic penicillin immunosuppressed " +
+ "hygiene hygienist prophylaxis prognosis diagnosis differential referral referred consent " +
+ "informed confidentiality rapport empathy reassure explain options risks benefits " +
+ "orthodontic orthodontics eruption exfoliation avulsion luxation intrusion concussion " +
+ "trauma splint sensitivity hypersensitivity hypomineralisation hypoplasia " +
+ "prosthesis prosthodontic occlusion stomatitis candida angular cheilitis ulcer ulceration " +
+ "smoking cessation alcohol diet sugar snacking brushing flossing interdental toothbrush " +
+ "maxillary mandibular buccal lingual palatal mesial distal " +
+ "antral sinus perforation swelling infection cellulitis lymph node").split(/\s+/);
+const LEXSET = new Set(LEX);
+
+/* 왼쪽처럼 들리면 오른쪽으로 고친다 */
+const MISHEARD = [
+  [/\b(perry|pear|pair)\s?(a|o|e)?\s?dental\b/gi, "periodontal"],
+  [/\bperio\s?dental\b/gi, "periodontal"],
+  [/\bperiod\s?on\s?tal\b/gi, "periodontal"],
+  [/\bperiod\s?on\s?(titis|titus|title)\b/gi, "periodontitis"],
+  [/\bperio\s?don\s?titis\b/gi, "periodontitis"],
+  [/\b(ginger|ginja|gin\s?ja)\s?vitis\b/gi, "gingivitis"],
+  [/\bgin\s?givitis\b/gi, "gingivitis"],
+  [/\bging\s?ival\b/gi, "gingival"],
+  [/\bcarries\b/gi, "caries"],
+  [/\b(karis|kerries|kerry's)\b/gi, "caries"],
+  [/\b(a\s?malcolm|amal\s?gum|am\s?algam|a\s?malgam)\b/gi, "amalgam"],
+  [/\bcom\s?posit\b/gi, "composite"],
+  [/\b(mowler|moller|mola)\b/gi, "molar"],
+  [/\bpre\s?molar\b/gi, "premolar"],
+  [/\b(a|o)\s?clusal\b/gi, "occlusal"],
+  [/\bendo\s?dontic\b/gi, "endodontic"],
+  [/\b(floride|flouride|fluor\s?ride|flor\s?ride)\b/gi, "fluoride"],
+  [/\b(cal\s?culators|calculators)\b/gi, "calculus"],
+  [/\ban\s(aesthetic|esthetic)\b/gi, "anaesthetic"],
+  [/\bpara\s?ceta\s?mol\b/gi, "paracetamol"],
+  [/\bi\s?bu\s?profen\b/gi, "ibuprofen"],
+  [/\bbis\s?phos\s?phonate/gi, "bisphosphonate"],
+  [/\b(for\ssome\sacts|fossa\s?max|foster\s?max)\b/gi, "Fosamax"],
+  [/\b(war\s?fair\s?in|warfare\sin|war\sfarin)\b/gi, "warfarin"],
+  [/\b(a\sliquid|elly\s?quis|el\s?liquis)\b/gi, "Eliquis"],
+  [/\bosteo\s?necrosis\b/gi, "osteonecrosis"],
+  [/\bosteo\s?porosis\b/gi, "osteoporosis"],
+  [/\b(em|m)\s?ron\s?(j|jay)\b/gi, "MRONJ"],
+  [/\b(perry|peri|pery)\s?apical\b/gi, "periapical"],
+  [/\bmal\s?occlusion\b/gi, "malocclusion"],
+  [/\bpro\s?f(y|i)\s?laxis\b/gi, "prophylaxis"],
+  [/\bhypo\s?mineral/gi, "hypomineral"],
+  [/\ba\s?vulsion\b/gi, "avulsion"],
+  [/\blux\s?ation\b/gi, "luxation"],
+  [/\bhall\s?crown\b/gi, "Hall crown"],
+  [/\b(oro?|aura|orrow)[\s-]?antral\b/gi, "oro-antral"],
+  [/\bbite\s?wing\b/gi, "bitewing"],
+  [/\bex\s?traction\b/gi, "extraction"],
+  [/\bzero\s?stomia\b/gi, "xerostomia"],
+  [/\bchlor\s?hexidine\b/gi, "chlorhexidine"],
+  [/\bden\s?tine\b/gi, "dentine"]
+];
+
+/* 지금 케이스 안에 실제로 나오는 영어 낱말도 후보 판정에 쓴다 */
+let VOCAB = null;
+function caseVocab(){
+  if(VOCAB) return VOCAB;
+  VOCAB = new Set();
+  const k = S.kase;
+  const eat = s => String(s == null ? "" : s).split(/[^A-Za-z'-]+/).forEach(w => {
+    if(w.length >= 4) VOCAB.add(w.toLowerCase());
+  });
+  if(k){
+    eat(k.title);
+    if(k.patient){ eat(k.patient.name); eat(k.patient.persona); eat(k.patient.opening);
+                   (k.patient.sampleLines||[]).forEach(eat); }
+    (k.cues||[]).forEach(c => { eat(c.hidden||c.reveal); eat(c.probe); });
+    const card = k.card || k.cueCard || {};
+    eat(card.complaint); eat(card.patient); eat(card.setting);
+    (card.tasks||[]).forEach(eat);
+    (card.sections||[]).forEach(s => (s.items||[]).forEach(eat));
+  }
+  return VOCAB;
+}
+
+function domainScore(txt){
+  const ws = String(txt).toLowerCase().match(/[a-z']+/g) || [];
+  const voc = caseVocab();
+  let s = 0;
+  for(const w of ws){ if(LEXSET.has(w)) s += 1.0; else if(voc.has(w)) s += 0.6; }
+  return s;
+}
+
+/* 인식기가 준 후보 중 치과 용어가 가장 많이 살아 있는 것을 고른다 */
+function bestAlt(res){
+  let best = res[0] ? res[0].transcript : "";
+  let bestS = domainScore(best) + (res[0] && res[0].confidence ? res[0].confidence : 0) * 0.4 + 0.25;
+  for(let j = 1; j < res.length; j++){
+    const t = res[j].transcript;
+    const s = domainScore(t) + (res[j].confidence || 0) * 0.4;
+    if(s > bestS){ best = t; bestS = s; }
+  }
+  return best;
+}
+
+function repairTerms(txt){
+  let out = " " + txt + " ";
+  for(const [re, to] of MISHEARD) out = out.replace(re, to);
+  return out.trim().replace(/\s{2,}/g, " ");
+}
+
+/* 마지막 손질 — 설정에서 켠 경우에만 AI가 용어만 바로잡는다.
+   싸고 빠른 모델을 쓴다. 이 이름이 거부되면 위에 고른 모델로 한 번 더 시도한다. */
+const FIXMODEL = "claude-haiku-4-5-20251001";
+async function aiRepair(text){
+  if(store.fix !== "on" || !text || text.split(/\s+/).length < 2) return text;
+  const voc = Array.from(caseVocab()).filter(w => LEXSET.has(w) || /^[a-z]{5,}$/.test(w));
+  const sys = [
+    "You repair speech-recognition output from a dental OSCE roleplay. The speaker is a",
+    "dentist whose first language is not English.",
+    "",
+    "Fix ONLY words that are clearly misrecognised dental, medical or proper-noun terms.",
+    "Keep every grammar mistake, wrong tense, missing article, filler and hesitation exactly",
+    "as it is. Do not rephrase, do not add words, do not remove words, do not reorder.",
+    "Do not answer, do not comment, do not add quotes. Output the repaired line only.",
+    "If nothing is clearly misheard, output the input completely unchanged.",
+    voc.length ? "Terms that may appear in this case: " + voc.slice(0, 120).join(", ") : ""
+  ].join("\n");
+  const msgs = [{ role:"user", content:text }];
+  let out = "";
+  try{ out = await claude(sys, msgs, 300, FIXMODEL); }
+  catch(e){
+    try{ out = await claude(sys, msgs, 300); }        // 모델 이름이 막히면 쓰던 모델로
+    catch(e2){ return text; }
+  }
+  out = String(out || "").replace(/^["'\u201C]|["'\u201D]$/g, "").trim();
+  const a = text.split(/\s+/).length, b = out.split(/\s+/).length;
+  if(!out || b < a * 0.7 || b > a * 1.3) return text;  // 너무 많이 바뀌면 원문을 지킨다
+  return out;
+}
+
 function listen(){
   if(!SR){ typeTurn(); return; }
 
@@ -642,10 +818,10 @@ function startRecog(){
     try{ S.recog.abort(); }catch(e){}
   }
   const r = new SR();
-  r.lang = "en-AU";
+  r.lang = store.srl || "en-AU";
   r.interimResults = true;
   r.continuous = true;                  // 안드로이드는 이걸로 계속 듣는다
-  r.maxAlternatives = 1;
+  r.maxAlternatives = 5;                // 후보를 여러 개 받아 치과 용어가 살아 있는 것을 고른다
   S.recog = r;
 
   r.onstart = () => {
@@ -661,9 +837,8 @@ function startRecog(){
     // 크롬은 결과 목록 전체를 다시 보낸다. 이어 붙이면 같은 말이 겹친다.
     let fin = "", interim = "";
     for(let i = 0; i < e.results.length; i++){
-      const t = e.results[i][0].transcript;
-      if(e.results[i].isFinal) fin = mergeSpeech(fin, t);
-      else interim = mergeSpeech(interim, t);
+      if(e.results[i].isFinal) fin = mergeSpeech(fin, bestAlt(e.results[i]));
+      else interim = mergeSpeech(interim, e.results[i][0].transcript);
     }
     S.buffer = mergeSpeech(S.carry, fin);
     drawInterim(mergeSpeech(S.buffer, interim));
@@ -694,7 +869,7 @@ function startRecog(){
     $("mic").classList.remove("live");
     $("mic").textContent = "탭하고 말하기";
     clearInterim();
-    const said = S.buffer.trim();
+    const said = repairTerms(S.buffer.trim());
     S.buffer = ""; S.carry = "";
     if(said) submitTurn(said);
   };
@@ -710,6 +885,12 @@ function typeTurn(){
 
 /* ══════════ 대본 그리기 ══════════ */
 function drawScript(){
+  if(!S.turns.length){
+    $("script").innerHTML = '<div class="opencue">' +
+      esc(S.kase && S.kase.patient ? S.kase.patient.name : "환자") +
+      ' 님이 앉아서 기다리고 있습니다. 마이크를 탭하고 먼저 인사하세요.</div>';
+    return;
+  }
   $("script").innerHTML = S.turns.map(t =>
     '<div class="turn '+(t.role==="dr"?"dr":"pt")+'">' +
       '<div class="who">'+(t.role==="dr" ? "Dentist" : esc(S.kase.patient.name))+"</div>" +
@@ -738,7 +919,7 @@ function thinking(on){
 }
 
 /* ══════════ Claude 호출 ══════════ */
-async function claude(system, messages, maxTokens){
+async function claude(system, messages, maxTokens, modelOverride){
   const key = store.k;
   if(!key) throw new Error("API 키가 없습니다.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -750,7 +931,7 @@ async function claude(system, messages, maxTokens){
       "anthropic-dangerous-direct-browser-access": "true"
     },
     body: JSON.stringify({
-      model: store.m,
+      model: modelOverride || store.m,
       max_tokens: maxTokens || 400,
       system: [{ type:"text", text:system,
                  cache_control:{ type:"ephemeral" } }],
@@ -762,7 +943,7 @@ async function claude(system, messages, maxTokens){
     try{ const j = await res.json(); detail = (j.error && j.error.message) || ""; }catch(e){}
     if(res.status === 401) throw new Error("API 키가 거부됐습니다. 키를 확인하세요.");
     if(res.status === 429) throw new Error("요청 한도에 걸렸습니다. 잠시 뒤 다시.");
-    if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + store.m);
+    if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + (modelOverride || store.m));
     throw new Error("API 오류 " + res.status + (detail ? " — " + detail : ""));
   }
   const data = await res.json();
@@ -811,6 +992,14 @@ function patientSystem(){
   const k = S.kase;
   const cues = k.cues.map(c => "- ["+c.id+"] "+(c.hidden||c.reveal)+
      (c.probe ? "   (drawn out by: "+c.probe+")" : "")).join("\n");
+  const first = k.patient.opening
+    ? "\n\nYOUR FIRST LINE — the dentist speaks first. When they greet you, answer the greeting\n" +
+      "in a few words, then give your concern, staying close to this wording:\n" +
+      "\"" + k.patient.opening + "\"\n" +
+      "Use it once, on your very first reply. If the dentist opens with a question instead of\n" +
+      "a greeting, answer that question first and still work this concern in.\n" +
+      "Never say it again after that."
+    : "";
   const style = (k.patient.sampleLines||[]).length
     ? "\n\nHOW THIS PATIENT TALKS — real lines from this character. Match this voice,\n" +
       "this vocabulary and this level of pushback. Do not reuse them word for word.\n" +
@@ -827,6 +1016,7 @@ function patientSystem(){
     "naturally draw it out, and say it in your own English. Never volunteer it. Never give",
     "several at once. If nothing the dentist asks touches an item, it stays hidden.",
     cues,
+    first,
     style,
     "",
     "RULES",
@@ -834,27 +1024,28 @@ function patientSystem(){
     "- One to three sentences. Talk like a real person, not in paragraphs.",
     "- Two questions at once: answer only the one you noticed.",
     "- Jargon: react like a layperson who did not follow it.",
+    "- The dentist's words reach you through speech recognition, so a word may be garbled.",
+    "  Read past the odd word and answer what they clearly meant. Never mention the garble.",
     "- Never coach, never grade, never break character, never mention the exam.",
     "- Warm dentist, you warm up. Dismissive dentist, you get shorter."
   ].join("\n");
 }
 async function patientReply(){
-  const msgs = [];
-  msgs.push({ role:"user", content:"[The dentist greets you. Give your opening line.]" });
-  msgs.push({ role:"assistant", content:S.kase.patient.opening });
-  S.turns.forEach(t => {
-    if(t.role === "dr") msgs.push({ role:"user", content:t.text });
-    else if(t.text !== S.kase.patient.opening) msgs.push({ role:"assistant", content:t.text });
-  });
+  const msgs = S.turns.map(t => ({ role: t.role === "dr" ? "user" : "assistant", content: t.text }));
+  if(!msgs.length || msgs[0].role !== "user")      // 첫 발화는 언제나 치과의사 쪽이다
+    msgs.unshift({ role:"user", content:"[The dentist has just walked in.]" });
   return claude(patientSystem(), msgs, 220);
 }
 
 async function submitTurn(text){
   if(S.busy) return;
   S.busy = true; $("mic").disabled = true;
-  S.turns.push({ role:"dr", text:text });
+  const turn = { role:"dr", text:text };
+  S.turns.push(turn);
   drawScript(); thinking(true);
   try{
+    const fixed = await aiRepair(text);          // 잘못 들린 용어만 조용히 바로잡는다
+    if(fixed && fixed !== text){ turn.text = fixed; drawScript(); thinking(true); }
     const reply = await patientReply();
     thinking(false);
     S.turns.push({ role:"pt", text:reply });
@@ -1051,11 +1242,10 @@ function enterStation(){
   clearInterval(S.readT);
   show("s-station");
   buildPinned();
-  S.turns = [{ role:"pt", text:S.kase.patient.opening }];
+  S.turns = [];                 // 환자는 내가 인사한 다음에 입을 연다
   drawScript();
   runStation();
   recStart();
-  say(S.kase.patient.opening);
 }
 
 $("go").onclick = () => {
@@ -1066,6 +1256,8 @@ $("go").onclick = () => {
   store.r = parseFloat($("rate").value) || 1.3;
   store.rec = $("rec").value;
   store.end = $("endmode").value;
+  store.srl = $("srlang").value;
+  store.fix = $("asrfix").value;
   store.eng = $("engine").value;
   if(store.eng === "11"){
     store.elk = $("elKey").value.trim();
@@ -1078,6 +1270,7 @@ $("go").onclick = () => {
   S.elWarned = false;
   S.kase = takeCase(+$("caseSel").value);
   if(!S.kase){ fail("케이스가 없습니다."); return; }
+  VOCAB = null;                       // 케이스가 바뀌면 낱말 사전을 다시 만든다
   primeVoice();
 
   const card = S.kase.card;
@@ -1309,6 +1502,8 @@ migrateOldPacks();
 try{ repairIndex(); }catch(e){}
 $("rec").value = store.rec;
 $("endmode").value = store.end;
+$("srlang").value = store.srl;
+$("asrfix").value = store.fix;
 $("engine").value = store.eng;
 $("elKey").value = store.elk;
 toggleEl();
