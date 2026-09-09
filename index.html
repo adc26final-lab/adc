@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light">
+<meta name="theme-color" content="#E9EDEC">
+<title>OSCE Station</title>
+<style>
+  :root{
+    color-scheme: light only;
+    -webkit-text-size-adjust: 100%;
+    --ink:#12212B;
+    --ink-soft:#4A5C66;
+    --paper:#E9EDEC;
+    --card:#FFFFFF;
+    --teal:#0F6E6E;
+    --teal-pale:#DCEAE8;
+    --amber:#C46A16;
+    --red:#A8322A;
+    --rule:#C9D2D2;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%; background:#E9EDEC}
+  body{
+    background:var(--paper); color:var(--ink);
+    forced-color-adjust:none;
+    font-family:var(--sans); font-size:16px; line-height:1.5;
+    overscroll-behavior-y:none;
+  }
+  button{font-family:inherit; font-size:inherit; cursor:pointer; border:none; background:none; color:inherit}
+  input,textarea,select{font-family:inherit; font-size:16px; color:inherit}
+
+  /* station clock: hairline across the very top */
+  #clock{position:fixed; top:0; left:0; right:0; height:3px; background:var(--rule); z-index:50}
+  #clockFill{height:100%; width:0%; background:var(--teal); transition:width .9s linear}
+  #clock.warn #clockFill{background:var(--amber)}
+  #clock.over #clockFill{background:var(--red)}
+
+  .wrap{max-width:640px; margin:0 auto; padding:26px 20px 40px;
+        padding-bottom:calc(40px + env(safe-area-inset-bottom))}
+  .stage{display:none}
+  .stage.on{display:block}
+
+  h1{font-size:23px; line-height:1.25; margin:0 0 6px; font-weight:600; letter-spacing:-.01em}
+  h2{font-size:15px; margin:26px 0 10px; font-weight:600; color:var(--ink-soft)}
+  p.lede{margin:0 0 22px; color:var(--ink-soft); font-size:14.5px}
+
+  label{display:block; font-size:13px; color:var(--ink-soft); margin:14px 0 5px}
+  input[type=text],input[type=password],textarea,select{
+    width:100%; padding:11px 12px; border:1px solid var(--rule);
+    border-radius:3px; background:var(--card);
+  }
+  textarea{min-height:120px; resize:vertical; font-size:14px; line-height:1.45}
+
+  .btn{display:block; width:100%; padding:15px; border-radius:3px;
+       background:var(--ink); color:#fff; font-weight:600; text-align:center; margin-top:20px}
+  .btn.ghost{background:none; color:var(--teal); border:1px solid var(--rule); font-weight:500}
+  .btn:disabled{opacity:.4}
+  .row{display:flex; gap:10px}
+  .row .btn{margin-top:14px}
+
+  /* cue card — printed exam paper */
+  .cue{background:var(--card); border:1px solid var(--rule); border-top:5px solid var(--ink);
+       padding:24px 22px; font-family:var(--serif)}
+  .cue .stationline{font-family:var(--sans); font-size:12px; color:var(--ink-soft);
+       border-bottom:1px solid var(--rule); padding-bottom:10px; margin-bottom:16px}
+  .cue h3{margin:0 0 14px; font-size:19px; font-weight:600}
+  .cue p{margin:0 0 12px; font-size:16px; line-height:1.6}
+  .cue ol{margin:0; padding-left:20px}
+  .cue ol li{margin-bottom:8px; line-height:1.55}
+  .cue .ci{font-family:var(--sans); font-size:11.5px; letter-spacing:.09em;
+           color:var(--ink-soft); margin-bottom:16px}
+  .cue .who2{font-size:17px; font-weight:600; margin:0 0 3px}
+  .cue .cc{font-style:italic; margin:0 0 18px; color:var(--ink)}
+  .cue .sec{font-family:var(--sans); font-size:11.5px; font-weight:700;
+            letter-spacing:.05em; color:var(--teal); margin:15px 0 5px}
+  .cue ul{margin:0; padding-left:19px}
+  .cue ul li{margin-bottom:5px; line-height:1.5}
+  .cue .tasklab{font-family:var(--sans); font-size:11.5px; font-weight:700;
+                letter-spacing:.05em; margin:20px 0 8px; padding-top:14px;
+                border-top:1px solid var(--rule)}
+
+  .timerbig{font-family:var(--serif); font-size:44px; letter-spacing:.02em;
+            font-variant-numeric:tabular-nums; margin:22px 0 0}
+  .timerbig.warn{color:var(--amber)}
+  .timerbig.over{color:var(--red)}
+  .timerlabel{font-size:13px; color:var(--ink-soft); margin-top:2px}
+
+  /* pinned card + clock */
+  #pin{position:sticky; top:3px; z-index:40; background:var(--paper);
+       border-bottom:1px solid var(--rule); margin:0 -20px; padding:0 20px 8px}
+  .pinbar{display:flex; align-items:baseline; gap:10px; padding:10px 0 8px}
+  .pinclock{font-family:var(--serif); font-size:27px; font-variant-numeric:tabular-nums;
+            line-height:1}
+  .pinclock.warn{color:var(--amber)} .pinclock.over{color:var(--red)}
+  .pinname{flex:1; font-size:13.5px; color:var(--ink-soft); overflow:hidden;
+           white-space:nowrap; text-overflow:ellipsis}
+  #fold{font-size:12.5px; color:var(--teal); border:1px solid var(--rule);
+        border-radius:3px; padding:6px 10px; background:var(--card); white-space:nowrap}
+  #pinCard{background:var(--card); border:1px solid var(--rule); border-top:3px solid var(--ink);
+           padding:14px 15px; font-family:var(--serif); font-size:14.5px; line-height:1.5;
+           max-height:38vh; overflow-y:auto; -webkit-overflow-scrolling:touch}
+  #pinCard.folded{display:none}
+  #pinCard .cc{font-style:italic; margin:0 0 11px}
+  #pinCard .sec{font-family:var(--sans); font-size:10.5px; font-weight:700;
+                letter-spacing:.05em; color:var(--teal); margin:11px 0 3px}
+  #pinCard ul,#pinCard ol{margin:0; padding-left:17px}
+  #pinCard li{margin-bottom:3px}
+  #pinCard .tasklab{font-family:var(--sans); font-size:10.5px; font-weight:700;
+                    letter-spacing:.05em; margin:13px 0 5px; padding-top:10px;
+                    border-top:1px solid var(--rule)}
+
+  /* transcript — exam record, not chat bubbles */
+  #script{margin:8px 0 0}
+  .turn{border-left:2px solid var(--rule); padding:2px 0 2px 13px; margin-bottom:16px}
+  .turn.dr{border-left-color:var(--teal)}
+  .turn .who{font-size:11.5px; color:var(--ink-soft); margin-bottom:3px; font-weight:600}
+  .turn.dr .who{color:var(--teal)}
+  .turn .said{font-size:16px; line-height:1.5}
+  .turn.interim .said{color:var(--ink-soft); font-style:italic}
+  .thinking{color:var(--ink-soft); font-size:14px; padding-left:15px}
+
+  /* mic */
+  .micbar{position:sticky; bottom:0; padding:14px 0 calc(14px + env(safe-area-inset-bottom));
+          background:linear-gradient(to top, var(--paper) 72%, rgba(233,237,236,0))}
+  #mic{width:100%; padding:19px; border-radius:3px; background:var(--teal); color:#fff;
+       font-weight:600; text-align:center}
+  #mic.live{background:var(--red)}
+  #mic:disabled{background:var(--rule); color:var(--ink-soft)}
+  .microw{display:flex; gap:8px; margin-top:8px}
+  .microw button{flex:1; padding:11px; border:1px solid var(--rule); border-radius:3px;
+                 font-size:13.5px; color:var(--ink-soft); background:var(--card)}
+
+  /* report */
+  .verdict{background:var(--card); border:1px solid var(--rule); padding:20px 18px; margin-bottom:18px}
+  .verdict .score{font-family:var(--serif); font-size:40px; font-variant-numeric:tabular-nums}
+  .verdict .of{font-size:17px; color:var(--ink-soft)}
+  .fail{background:#F6E4E2; border-color:var(--red); color:var(--red)}
+  .dom{border-top:1px solid var(--rule); padding:14px 0}
+  .dom .head{display:flex; justify-content:space-between; align-items:baseline; gap:12px}
+  .dom .name{font-weight:600; font-size:15px}
+  .dom .pts{font-family:var(--serif); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .dom .note{font-size:14px; color:var(--ink-soft); margin-top:6px; line-height:1.5}
+  .selfcheck .name::after{content:" — 자가확인"; font-weight:400; color:var(--amber); font-size:12.5px}
+  .cuelist{list-style:none; padding:0; margin:6px 0 0}
+  .cuelist li{padding:7px 0 7px 24px; border-bottom:1px solid var(--rule);
+              font-size:14.5px; position:relative; line-height:1.45}
+  .cuelist li::before{position:absolute; left:2px; top:7px; font-weight:700}
+  .cuelist li.got::before{content:"✓"; color:var(--teal)}
+  .cuelist li.miss::before{content:"·"; color:var(--rule); font-size:20px; top:3px}
+  .cuelist li.miss{color:var(--ink-soft)}
+
+  .fix{background:var(--card); border-left:3px solid var(--amber); padding:12px 14px; margin-bottom:10px}
+  .fix .said{font-size:14px; color:var(--ink-soft); margin-bottom:5px}
+  .fix .better{font-size:15px}
+
+  .note{font-size:13px; color:var(--ink-soft); margin-top:10px; line-height:1.5}
+  .err{background:#F6E4E2; border:1px solid var(--red); color:var(--red);
+       padding:12px 14px; font-size:14px; margin:16px 0; border-radius:3px}
+  .hide{display:none}
+  input[type=file]{width:100%;padding:11px 12px;border:1px solid var(--rule);
+                   border-radius:3px;background:var(--card);font-size:14px}
+  a{color:var(--teal)}
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important} }
+</style>
+</head>
+<body>
+
+<div id="clock"><div id="clockFill"></div></div>
+
+<div class="wrap">
+
+<!-- ─────────── SETUP ─────────── -->
+<section id="s-setup" class="stage on">
+  <h1>OSCE Station</h1>
+  <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
+
+  <div id="compat"></div>
+
+
+  <label for="key">Anthropic API 키</label>
+  <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off">
+  <p class="note">이 폰의 브라우저 저장소에만 남습니다. 서버로 보내지 않습니다.</p>
+
+  <label for="caseSel">케이스</label>
+  <select id="caseSel"></select>
+
+  <label for="rec">내 목소리 녹음</label>
+  <select id="rec">
+    <option value="off" selected>끄기</option>
+    <option value="on">켜기 — 10분 전체를 녹음</option>
+  </select>
+
+  <label for="endmode">내 말 끝내기</label>
+  <select id="endmode">
+    <option value="tap" selected>탭해서 끝내기</option>
+    <option value="auto">멈추면 자동 (1.6초)</option>
+  </select>
+
+  <label for="engine">환자 목소리</label>
+  <select id="engine">
+    <option value="tts">브라우저 기본 — 무료</option>
+    <option value="11">ElevenLabs — 크레딧 사용</option>
+  </select>
+
+  <div id="elBox" class="hide">
+    <label for="elKey">ElevenLabs API 키</label>
+    <input type="password" id="elKey" placeholder="계정 → Profile → API Key" autocomplete="off">
+    <button class="btn ghost" id="elLoad">목소리 불러오기</button>
+    <div id="elVoiceWrap" class="hide">
+      <label for="elVoice">목소리</label>
+      <select id="elVoice"></select>
+    </div>
+    <p class="note">호출이 실패하면 기본 음성으로 자동 전환됩니다. 연습은 안 끊깁니다.</p>
+  </div>
+
+  <label for="rate">환자 말 속도</label>
+  <select id="rate">
+    <option value="0.95">느리게</option>
+    <option value="1.15">보통</option>
+    <option value="1.3" selected>빠르게 — 실전에 가까움</option>
+    <option value="1.45">아주 빠르게</option>
+  </select>
+
+  <label for="model">모델</label>
+  <input type="text" id="model" value="claude-sonnet-5">
+
+  <div class="row">
+    <button class="btn" id="go">스테이션 시작</button>
+  </div>
+  <button class="btn ghost" id="openImport">케이스 불러오기</button>
+
+  <div id="importBox" class="hide">
+    <label for="pickFiles">JSON 파일 고르기</label>
+    <input type="file" id="pickFiles" accept=".json,application/json" multiple>
+    <p class="note">여러 개를 한 번에 고를 수 있습니다. cases.json 묶음도 됩니다.</p>
+
+    <label for="importJson">또는 붙여넣기</label>
+    <textarea id="importJson" placeholder='{"id":"...","title":"...", ...}'></textarea>
+    <button class="btn ghost" id="doImport">추가</button>
+    <p class="note">JSON 하나가 케이스 하나입니다. 배열로 여러 개도 됩니다.</p>
+  </div>
+</section>
+
+<!-- ─────────── BRIEFING ─────────── -->
+<section id="s-brief" class="stage">
+  <div class="cue">
+    <div class="stationline" id="briefStation"></div>
+    <div class="ci">CANDIDATE INSTRUCTIONS</div>
+    <div id="briefBody"></div>
+    <div class="tasklab">TASK</div>
+    <ol id="briefTasks"></ol>
+  </div>
+  <div class="timerbig" id="readClock">3:00</div>
+  <div class="timerlabel">읽는 시간</div>
+  <button class="btn" id="enter">들어가기</button>
+  <p class="note">시간이 다 되면 자동으로 시작합니다.</p>
+</section>
+
+<!-- ─────────── STATION ─────────── -->
+<section id="s-station" class="stage">
+  <div id="pin">
+    <div class="pinbar">
+      <span class="pinclock" id="stnClock">10:00</span>
+      <span class="pinname" id="pinName"></span>
+      <button id="fold">카드 접기</button>
+    </div>
+    <div id="pinCard"></div>
+  </div>
+  <div id="script"></div>
+  <div class="micbar">
+    <button id="mic">탭하고 말하기</button>
+    <div class="microw">
+      <button id="typeIn">타이핑</button>
+      <button id="repeat">환자 다시 듣기</button>
+      <button id="finish">끝내고 채점</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── REPORT ─────────── -->
+<section id="s-report" class="stage">
+  <h1>채점 결과</h1>
+  <div id="report"></div>
+  <button class="btn" id="saveReport">결과 저장 · 공유</button>
+  <button class="btn ghost hide" id="saveAudio">녹음 저장 · 공유</button>
+  <button class="btn ghost" id="again">처음으로</button>
+</section>
+
+</div>
+
+<script>
+"use strict";
+
+/* ══════════ 케이스 팩 ══════════
+   아래는 형식을 보여주기 위한 임시 케이스입니다.
+   실제 Divya / Warriors 케이스로 교체해서 쓰세요. */
+const BUILTIN = [];   // 케이스는 코드에 넣지 않는다. 각자 "케이스 불러오기"로 자기 폰에만 저장한다.
+
+/* ══════════ 상태 ══════════ */
+const S = {
+  metas: [], kase: null,
+  turns: [],            // {role:'dr'|'pt', text}
+  recog: null, listening: false, want: false, buffer: "", silT: null,
+  readT: null, stnT: null, stnLeft: 0,
+  speaking: null, busy: false
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const mmss = s => { s = Math.max(0, Math.round(s));
+  return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); };
+
+function show(id){
+  document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
+  $(id).classList.add("on");
+  window.scrollTo(0,0);
+}
+function setClock(frac, state){
+  $("clockFill").style.width = Math.min(100, frac*100) + "%";
+  $("clock").className = state || "";
+}
+function fail(msg){
+  const d = document.createElement("div");
+  d.className = "err"; d.textContent = msg;
+  document.querySelector(".stage.on").prepend(d);
+  d.scrollIntoView({block:"center"});
+  setTimeout(() => d.remove(), 12000);
+}
+
+/* ══════════ 저장 ══════════ */
+const PFX = "osce.";
+const store = {
+  get k(){ try{ return localStorage.getItem("osce.key") || ""; }catch(e){ return ""; } },
+  set k(v){ try{ localStorage.setItem("osce.key", v); }catch(e){} },
+  get m(){ try{ return localStorage.getItem("osce.model") || "claude-sonnet-5"; }catch(e){ return "claude-sonnet-5"; } },
+  set m(v){ try{ localStorage.setItem("osce.model", v); }catch(e){} },
+  get r(){ try{ return parseFloat(localStorage.getItem("osce.rate")) || 1.3; }catch(e){ return 1.3; } },
+  set r(v){ try{ localStorage.setItem("osce.rate", v); }catch(e){} },
+  get rec(){ try{ return localStorage.getItem("osce.rec")||"off"; }catch(e){ return "off"; } },
+  set rec(v){ try{ localStorage.setItem("osce.rec", v); }catch(e){} },
+  get end(){ try{ return localStorage.getItem("osce.end")||"tap"; }catch(e){ return "tap"; } },
+  set end(v){ try{ localStorage.setItem("osce.end", v); }catch(e){} },
+  get eng(){ try{ return localStorage.getItem("osce.engine") || "tts"; }catch(e){ return "tts"; } },
+  set eng(v){ try{ localStorage.setItem("osce.engine", v); }catch(e){} },
+  get elk(){ try{ return localStorage.getItem("osce.elkey") || ""; }catch(e){ return ""; } },
+  set elk(v){ try{ localStorage.setItem("osce.elkey", v); }catch(e){} },
+  get elv(){ try{ return localStorage.getItem("osce.elvoice") || ""; }catch(e){ return ""; } },
+  set elv(v){ try{ localStorage.setItem("osce.elvoice", v); }catch(e){} },
+  get elvn(){ try{ return localStorage.getItem("osce.elvname") || ""; }catch(e){ return ""; } },
+  set elvn(v){ try{ localStorage.setItem("osce.elvname", v); }catch(e){} },
+  idx(){
+    try{
+      const v = JSON.parse(localStorage.getItem(PFX+"index")||"[]");
+      return v.map(x => typeof x === "string" ? { id:x, title:x } : x);   // 예전 형식도 읽는다
+    }catch(e){ return []; }
+  },
+  meta(c){
+    return { id:c.id, title:c.title||c.id, code:c.code||"",
+             module:c.module||99, moduleName:c.moduleName||"", moduleColor:c.moduleColor||"" };
+  },
+  load(id){                            // 고른 케이스 하나만 펼친다
+    try{ const raw = localStorage.getItem(PFX+"c."+id); return raw ? JSON.parse(raw) : null; }
+    catch(e){ return null; }
+  },
+  addPacks(list){
+    const ids = store.idx();
+    let n = 0;
+    for(const c of list){
+      try{ localStorage.setItem(PFX+"c."+c.id, JSON.stringify(c)); }
+      catch(e){
+        try{ localStorage.setItem(PFX+"index", JSON.stringify(ids)); }catch(e2){}
+        throw new Error("저장 공간이 찼습니다. "+n+"개까지 들어갔습니다. 나머지는 나눠서 넣으세요.");
+      }
+      const at = ids.findIndex(x => x.id === c.id);
+      if(at < 0) ids.push(store.meta(c)); else ids[at] = store.meta(c);
+      n++;
+    }
+    localStorage.setItem(PFX+"index", JSON.stringify(ids));
+    return n;
+  },
+  clearPacks(){
+    for(const m of store.idx()){ try{ localStorage.removeItem(PFX+"c."+m.id); }catch(e){} }
+    try{ localStorage.removeItem(PFX+"index"); }catch(e){}
+  },
+};
+
+/* ══════════ 호환성 확인 ══════════ */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const canSpeak = "speechSynthesis" in window;
+
+(function compat(){
+  const bad = [];
+  if(!SR) bad.push("이 브라우저는 음성인식을 지원하지 않습니다. 아이폰은 사파리, 안드로이드는 크롬을 쓰세요. 타이핑으로는 계속 진행됩니다.");
+  if(!canSpeak) bad.push("이 브라우저는 음성합성을 지원하지 않습니다. 환자 대사는 글로만 나옵니다.");
+  if(location.protocol !== "https:" && location.hostname !== "localhost")
+    bad.push("https 주소가 아니면 마이크가 차단됩니다. 호스팅한 주소로 여세요.");
+  if(bad.length) $("compat").innerHTML =
+    '<div class="err">' + bad.map(esc).join("<br><br>") + "</div>";
+})();
+
+/* ══════════ 케이스 목록 ══════════ */
+function groupOptions(cases){
+  const groups = [];
+  cases.forEach((c,i) => {
+    const key = c.moduleName || "분류 없음";
+    let g = groups.find(x => x.key === key);
+    if(!g){ g = { key:key, no:(c.module||99), color:c.moduleColor||"#8A8F98", items:[] };
+            groups.push(g); }
+    g.items.push({ i:i, label:(c.code ? c.code+"  " : "") + (c.title||c.id) });
+  });
+  groups.sort((a,b) => a.no - b.no);
+  return groups.map(g =>
+    '<optgroup label="'+esc((g.no<90 ? "Module "+g.no+" — " : "")+g.key)+'">' +
+    g.items.map(o => '<option value="'+o.i+'">'+esc(o.label)+"</option>").join("") +
+    "</optgroup>").join("");
+}
+
+
+/* 예전 저장 형식(한 덩어리)이 남아 있으면 새 형식으로 옮긴다 */
+function migrateOldPacks(){
+  let old = null;
+  try{ old = localStorage.getItem(PFX+"packs"); }catch(e){ return 0; }
+  if(!old) return 0;
+  let list = [];
+  try{ list = JSON.parse(old) || []; }catch(e){ return 0; }
+  if(!Array.isArray(list) || !list.length){
+    try{ localStorage.removeItem(PFX+"packs"); }catch(e){}
+    return 0;
+  }
+  let n = 0;
+  try{ n = store.addPacks(list.filter(c => c && c.id)); }catch(e){ n = -1; }
+  if(n >= 0){ try{ localStorage.removeItem(PFX+"packs"); }catch(e){} }
+  return n;
+}
+
+/* 목차에 모듈 정보가 빠져 있으면 저장된 케이스를 읽어 다시 만든다 */
+async function fetchVoices(key){
+  const tries = [
+    "https://api.elevenlabs.io/v2/voices?page_size=100",
+    "https://api.elevenlabs.io/v1/voices"        // 구버전 — v2 가 400 이면 이쪽
+  ];
+  let last = "";
+  for(const url of tries){
+    let res;
+    try{ res = await fetch(url, { headers:{ "xi-api-key": key } }); }
+    catch(e){ last = "네트워크 오류"; continue; }
+    if(res.ok){
+      const vs = (await res.json()).voices || [];
+      if(vs.length) return vs;
+      last = "목소리가 하나도 없습니다.";
+      continue;
+    }
+    if(res.status === 401){
+      throw new Error("키가 거부됐습니다. 만료됐거나 Voices 읽기 권한이 없습니다.");
+    }
+    last = "오류 " + res.status;
+  }
+  throw new Error(last || "불러오지 못했습니다.");
+}
+
+function repairIndex(){
+  const ids = store.idx();
+  if(!ids.length) return 0;
+  const needs = ids.some(m => !m.moduleName || !m.code);
+  if(!needs) return 0;
+  let fixed = 0;
+  const rebuilt = ids.map(m => {
+    if(m.moduleName && m.code) return m;
+    const full = store.load(m.id);
+    if(!full) return m;
+    fixed++;
+    return store.meta(full);
+  });
+  try{ localStorage.setItem(PFX+"index", JSON.stringify(rebuilt)); }catch(e){}
+  return fixed;
+}
+
+function loadCases(){
+  S.metas = BUILTIN.map(store.meta).concat(store.idx());
+  $("caseSel").innerHTML = S.metas.length
+    ? groupOptions(S.metas)
+    : '<option value="">— 아래에서 케이스를 먼저 넣으세요 —</option>';
+}
+
+function takeCase(i){
+  const m = S.metas[i];
+  if(!m) return null;
+  const built = BUILTIN.find(c => c.id === m.id);
+  return built || store.load(m.id);
+}
+
+/* ══════════ 음성 ══════════ */
+let voicePrimed = false;
+function primeVoice(){                       // iOS는 사용자 조작 안에서 한 번 깨워야 함
+  if(voicePrimed || !canSpeak) return;
+  const u = new SpeechSynthesisUtterance(" ");
+  u.lang = "en-AU"; u.volume = 0;
+  speechSynthesis.speak(u);
+  voicePrimed = true;
+  voicesReady().then(vs => { voiceCache = pickVoice(vs, "en-AU"); });
+}
+let voiceCache = null;
+
+function voicesReady(){                 // 목록이 채워질 때까지 기다린다
+  return new Promise(res => {
+    if(!canSpeak) return res([]);
+    const now = speechSynthesis.getVoices();
+    if(now && now.length) return res(now);
+    let done = false;
+    const finish = () => { if(!done){ done = true; res(speechSynthesis.getVoices()||[]); } };
+    speechSynthesis.onvoiceschanged = finish;
+    setTimeout(finish, 1500);           // 그래도 안 오면 포기하고 진행
+  });
+}
+
+function pickVoice(vs, hint){
+  hint = hint || "en-AU";
+  const base = hint.split("-")[0];
+  return vs.find(v => v.lang && v.lang.replace("_","-") === hint)
+      || vs.find(v => v.lang && v.lang.replace("_","-").startsWith("en-AU"))
+      || vs.find(v => v.lang && v.lang.replace("_","-").startsWith("en-GB"))
+      || vs.find(v => v.lang && v.lang.startsWith(base))
+      || null;
+}
+
+let elAudio = null;
+
+function browserSay(text){
+  if(!canSpeak) return;
+  const hint = (S.kase && S.kase.patient && S.kase.patient.voiceHint) || "en-AU";
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = hint;
+  if(voiceCache) u.voice = voiceCache;
+  u.rate = store.r; u.pitch = 1.0;
+  speechSynthesis.speak(u);
+}
+
+async function elevenSay(text){
+  const key = store.elk, vid = store.elv;
+  if(!key || !vid) throw new Error("ElevenLabs 설정이 비어 있습니다.");
+  const res = await fetch(
+    "https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(vid),
+    { method:"POST",
+      headers:{ "xi-api-key":key, "content-type":"application/json", "accept":"audio/mpeg" },
+      body: JSON.stringify({
+        text: text,
+        model_id: "eleven_turbo_v2_5",
+        voice_settings:{ stability:0.4, similarity_boost:0.75, style:0.35 }
+      }) });
+  if(!res.ok){
+    if(res.status === 401) throw new Error("ElevenLabs 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("ElevenLabs 크레딧이 부족합니다.");
+    throw new Error("ElevenLabs 오류 " + res.status);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  if(elAudio){ try{ elAudio.pause(); }catch(e){} }
+  elAudio = new Audio(url);
+  elAudio.playbackRate = store.r;
+  elAudio.onended = () => URL.revokeObjectURL(url);
+  await elAudio.play();
+}
+
+async function say(text){
+  if(!text) return;
+  S.speaking = text;
+  if(elAudio){ try{ elAudio.pause(); }catch(e){} }
+  speechSynthesis && speechSynthesis.cancel();
+
+  if(!voiceCache && canSpeak){
+    const vs = await voicesReady();
+    voiceCache = pickVoice(vs, (S.kase && S.kase.patient && S.kase.patient.voiceHint) || "en-AU");
+  }
+
+  if(store.eng === "11"){
+    try{ await elevenSay(text); return; }
+    catch(e){
+      if(!S.elWarned){ S.elWarned = true; fail(e.message + " 기본 음성으로 계속합니다."); }
+    }
+  }
+  browserSay(text);
+}
+
+function listen(){
+  if(!SR){ typeTurn(); return; }
+
+  if(S.listening){                      // 두 번째 탭 = 기다리지 않고 즉시 전송
+    S.want = false;
+    clearTimeout(S.silT);
+    try{ S.recog.stop(); }catch(e){}
+    return;
+  }
+
+  speechSynthesis && speechSynthesis.cancel();
+  S.want = true;
+  S.buffer = "";
+  startRecog();
+}
+
+const SILENCE_MS = 1600;               // 이만큼 조용하면 말이 끝난 것으로 본다
+
+function armSilence(){
+  clearTimeout(S.silT);
+  if(store.end !== "auto") return;      // 탭 방식이면 자동 종료 안 함
+  S.silT = setTimeout(() => {
+    if(S.want && S.buffer.trim()){      // 뭔가 말했고 아직 듣는 중이면 전송
+      S.want = false;
+      try{ S.recog.stop(); }catch(e){}
+    }
+  }, SILENCE_MS);
+}
+
+function startRecog(){
+  const r = new SR();
+  r.lang = "en-AU";
+  r.interimResults = true;
+  r.continuous = true;                  // 안드로이드는 이걸로 계속 듣는다
+  r.maxAlternatives = 1;
+  S.recog = r;
+
+  r.onstart = () => {
+    S.listening = true;
+    $("mic").classList.add("live");
+    $("mic").textContent = store.end === "auto"
+      ? "듣는 중 — 멈추면 자동 전송" : "듣는 중 — 다 말하면 다시 탭";
+    armSilence();
+  };
+
+  r.onresult = e => {
+    let interim = "";
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const t = e.results[i][0].transcript;
+      if(e.results[i].isFinal) S.buffer += t + " "; else interim += t;
+    }
+    drawInterim(S.buffer + interim);
+    armSilence();                      // 말이 이어지는 동안 계속 미룬다
+  };
+
+  r.onerror = e => {
+    if(e.error === "not-allowed"){
+      S.want = false;
+      fail("마이크 권한이 거부됐습니다. 사파리 설정에서 허용하세요.");
+    } else if(e.error === "no-speech"){
+      /* 조용했을 뿐 — onend 에서 알아서 다시 켠다 */
+    } else if(e.error !== "aborted"){
+      S.want = false;
+      fail("음성인식 오류: " + e.error);
+    }
+  };
+
+  r.onend = () => {
+    clearTimeout(S.silT);
+    if(S.want){                         // iOS가 멋대로 끊은 것 — 다시 켠다
+      setTimeout(() => { if(S.want){ try{ startRecog(); }catch(e){ S.want = false; } } }, 200);
+      return;
+    }
+    S.listening = false;
+    $("mic").classList.remove("live");
+    $("mic").textContent = "탭하고 말하기";
+    clearInterim();
+    const said = S.buffer.trim();
+    S.buffer = "";
+    if(said) submitTurn(said);
+  };
+
+  try{ r.start(); }
+  catch(e){ S.want = false; fail("마이크를 시작할 수 없습니다. 한 번 더 탭해 보세요."); }
+}
+
+function typeTurn(){
+  const t = prompt("치과의사 대사를 입력하세요");
+  if(t && t.trim()) submitTurn(t.trim());
+}
+
+/* ══════════ 대본 그리기 ══════════ */
+function drawScript(){
+  $("script").innerHTML = S.turns.map(t =>
+    '<div class="turn '+(t.role==="dr"?"dr":"pt")+'">' +
+      '<div class="who">'+(t.role==="dr" ? "Dentist" : esc(S.kase.patient.name))+"</div>" +
+      '<div class="said">'+esc(t.text)+"</div></div>").join("");
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function drawInterim(txt){
+  clearInterim();
+  if(!txt) return;
+  const d = document.createElement("div");
+  d.className = "turn dr interim"; d.id = "interim";
+  d.innerHTML = '<div class="who">Dentist</div><div class="said">'+esc(txt)+"</div>";
+  $("script").appendChild(d);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function clearInterim(){ const e = $("interim"); if(e) e.remove(); }
+
+function thinking(on){
+  const e = $("think");
+  if(on && !e){
+    const d = document.createElement("div");
+    d.className = "thinking"; d.id = "think"; d.textContent = "…";
+    $("script").appendChild(d);
+    window.scrollTo(0, document.body.scrollHeight);
+  } else if(!on && e) e.remove();
+}
+
+/* ══════════ Claude 호출 ══════════ */
+async function claude(system, messages, maxTokens){
+  const key = store.k;
+  if(!key) throw new Error("API 키가 없습니다.");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: store.m,
+      max_tokens: maxTokens || 400,
+      system: [{ type:"text", text:system,
+                 cache_control:{ type:"ephemeral" } }],
+      messages: messages
+    })
+  });
+  if(!res.ok){
+    let detail = "";
+    try{ const j = await res.json(); detail = (j.error && j.error.message) || ""; }catch(e){}
+    if(res.status === 401) throw new Error("API 키가 거부됐습니다. 키를 확인하세요.");
+    if(res.status === 429) throw new Error("요청 한도에 걸렸습니다. 잠시 뒤 다시.");
+    if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + store.m);
+    throw new Error("API 오류 " + res.status + (detail ? " — " + detail : ""));
+  }
+  const data = await res.json();
+  return (data.content || [])
+    .filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+}
+
+/* ── 세션 녹음 (선택) ── */
+const REC = { mr:null, chunks:[], blob:null, on:false, stream:null };
+
+function recMime(){
+  const c = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
+  for(const t of c) if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  return "";
+}
+
+async function recStart(){
+  if(store.rec !== "on") return;
+  if(!navigator.mediaDevices || !window.MediaRecorder) return;
+  try{
+    REC.stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    const mt = recMime();
+    REC.mr = mt ? new MediaRecorder(REC.stream, { mimeType:mt }) : new MediaRecorder(REC.stream);
+    REC.chunks = []; REC.blob = null;
+    REC.mr.ondataavailable = e => { if(e.data && e.data.size) REC.chunks.push(e.data); };
+    REC.mr.start(1000);
+    REC.on = true;
+  }catch(e){ fail("녹음을 시작하지 못했습니다. 연습은 그대로 진행됩니다."); }
+}
+
+function recStop(){
+  return new Promise(res => {
+    if(!REC.mr || REC.mr.state === "inactive"){ REC.on = false; return res(null); }
+    REC.mr.onstop = () => {
+      REC.on = false;
+      if(REC.stream){ REC.stream.getTracks().forEach(t => t.stop()); REC.stream = null; }
+      REC.blob = new Blob(REC.chunks, { type: REC.chunks[0] ? REC.chunks[0].type : "audio/mp4" });
+      res(REC.blob);
+    };
+    try{ REC.mr.stop(); }catch(e){ REC.on = false; res(null); }
+  });
+}
+
+/* ══════════ 환자 턴 ══════════ */
+function patientSystem(){
+  const k = S.kase;
+  const cues = k.cues.map(c => "- ["+c.id+"] "+(c.hidden||c.reveal)+
+     (c.probe ? "   (drawn out by: "+c.probe+")" : "")).join("\n");
+  const style = (k.patient.sampleLines||[]).length
+    ? "\n\nHOW THIS PATIENT TALKS — real lines from this character. Match this voice,\n" +
+      "this vocabulary and this level of pushback. Do not reuse them word for word.\n" +
+      k.patient.sampleLines.map(l => "- "+l).join("\n")
+    : "";
+  return [
+    "You are role-playing a patient in a dental communication exam. Stay fully in character.",
+    "",
+    "WHO YOU ARE",
+    k.patient.persona,
+    "",
+    "HIDDEN INFORMATION — the notes below are written in Korean for the examiner.",
+    "Never speak Korean. Reveal an item ONLY when the dentist asks something that would",
+    "naturally draw it out, and say it in your own English. Never volunteer it. Never give",
+    "several at once. If nothing the dentist asks touches an item, it stays hidden.",
+    cues,
+    style,
+    "",
+    "RULES",
+    "- Reply with spoken words only. No narration, no labels, no stage directions.",
+    "- One to three sentences. Talk like a real person, not in paragraphs.",
+    "- Two questions at once: answer only the one you noticed.",
+    "- Jargon: react like a layperson who did not follow it.",
+    "- Never coach, never grade, never break character, never mention the exam.",
+    "- Warm dentist, you warm up. Dismissive dentist, you get shorter."
+  ].join("\n");
+}
+async function patientReply(){
+  const msgs = [];
+  msgs.push({ role:"user", content:"[The dentist greets you. Give your opening line.]" });
+  msgs.push({ role:"assistant", content:S.kase.patient.opening });
+  S.turns.forEach(t => {
+    if(t.role === "dr") msgs.push({ role:"user", content:t.text });
+    else if(t.text !== S.kase.patient.opening) msgs.push({ role:"assistant", content:t.text });
+  });
+  return claude(patientSystem(), msgs, 220);
+}
+
+async function submitTurn(text){
+  if(S.busy) return;
+  S.busy = true; $("mic").disabled = true;
+  S.turns.push({ role:"dr", text:text });
+  drawScript(); thinking(true);
+  try{
+    const reply = await patientReply();
+    thinking(false);
+    S.turns.push({ role:"pt", text:reply });
+    drawScript();
+    say(reply);
+  }catch(err){
+    thinking(false);
+    fail(err.message);
+  }finally{
+    S.busy = false; $("mic").disabled = false;
+  }
+}
+
+/* ══════════ 채점 ══════════ */
+function markerSystem(){
+  const k = S.kase;
+  const doms = k.rubric.domains.map(d =>
+    "["+d.id+"] "+d.name+" — "+d.max+"점\n" +
+    (d.items||[]).map(i => "   "+i.no+". "+i.criterion).join("\n")).join("\n\n");
+  return [
+    "당신은 ADC Part 2 OSCE 채점관입니다. 대본에 실제로 나온 발화만 근거로 채점하세요.",
+    "각 항목은 2점(충분히 수행) / 1점(부분 수행) / 0점(미수행)입니다. 후하게 주지 마세요.",
+    "",
+    "채점 항목",
+    doms,
+    "",
+    "Cue Recovery — 환자가 물어야만 공개하는 정보. 후보자의 질문이 실제로 그것을",
+    "끌어냈을 때만 회수로 인정하세요.",
+    k.cues.map(c => "["+c.id+"] "+(c.hidden||c.reveal)).join("\n"),
+    "",
+    "Critical Fail — 하나라도 해당하면 불합격",
+    k.rubric.criticalFails.map((f,i) => (i+1)+". "+f).join("\n"),
+    "",
+    "JSON만 출력하세요. 설명도 코드펜스도 붙이지 마세요.",
+    "{",
+    ' "domains":[{"id":"A","items":[{"no":"A1","points":0,"why":"대본 근거 한 문장"}]}],',
+    ' "cues":[{"id":"C1","recovered":true,"how":"대본 근거 또는 놓친 이유"}],',
+    ' "criticalFail":{"triggered":false,"which":"","why":""},',
+    ' "fixes":[{"said":"후보자가 실제로 말한 문장","better":"더 나은 영어 문장"}],',
+    ' "summary":"한국어 3~4문장."',
+    "}",
+    "fixes는 3~6개, 반드시 대본에 실제로 있는 문장에서 고르세요."
+  ].join("\n");
+}
+function parseVerdict(raw){
+  let t = raw.replace(/^```(?:json)?/i,"").replace(/```\s*$/,"").trim();
+  const i = t.indexOf("{"), j = t.lastIndexOf("}");
+  if(i < 0) throw new Error("JSON 없음");
+  t = t.slice(i, j > i ? j+1 : undefined);
+  try{ return JSON.parse(t); }
+  catch(e){
+    // 잘린 응답을 살려본다: 열린 괄호를 닫아준다
+    let fixed = t.replace(/,\s*$/,"");
+    const open = (fixed.match(/{/g)||[]).length - (fixed.match(/}/g)||[]).length;
+    const arr  = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
+    fixed += "]".repeat(Math.max(0,arr)) + "}".repeat(Math.max(0,open));
+    return JSON.parse(fixed);
+  }
+}
+
+async function mark(){
+  const body = S.turns.map(t =>
+    (t.role === "dr" ? "DENTIST: " : "PATIENT: ") + t.text).join("\n");
+  const raw = await claude(markerSystem(),
+    [{ role:"user", content:"대본\n\n"+body }], 8000);
+  S.lastRaw = raw;
+  return parseVerdict(raw);
+}
+
+function drawReport(r){
+  const k = S.kase;
+  const gotD = {}; (r.domains||[]).forEach(d => gotD[d.id] = d);
+  const cueById = {}; (r.cues||[]).forEach(c => cueById[c.id] = c);
+  const nGot = k.cues.filter(c => cueById[c.id] && cueById[c.id].recovered).length;
+
+  let got = 0, max = 0;
+  k.rubric.domains.forEach(d => {
+    max += d.max;
+    const g = gotD[d.id] || {};
+    (g.items||[]).forEach(i => got += (i.points || 0));
+  });
+
+  const cf = r.criticalFail || {};
+  let h = '<div class="verdict'+(cf.triggered ? " fail" : "")+'">';
+  if(cf.triggered){
+    h += "<div><strong>Critical fail</strong></div>";
+    h += '<div class="note" style="color:inherit">'+esc(cf.which)+"<br>"+esc(cf.why)+"</div>";
+  } else {
+    h += '<span class="score">'+got+'</span><span class="of"> / '+max+"</span>";
+    h += '<div class="note">숨은 정보 '+nGot+" / "+k.cues.length+" 회수 · 발화 " +
+         S.turns.filter(t=>t.role==="dr").length+"턴</div>";
+  }
+  h += "</div>";
+
+  k.rubric.domains.forEach(d => {
+    const g = gotD[d.id] || {};
+    const byNo = {}; (g.items||[]).forEach(i => byNo[i.no] = i);
+    const sub = (g.items||[]).reduce((a,i) => a + (i.points||0), 0);
+    h += '<div class="dom"><div class="head"><span class="name">'+esc(d.id+". "+d.name) +
+         '</span><span class="pts">'+sub+" / "+d.max+"</span></div>";
+    (d.items||[]).forEach(it => {
+      const s2 = byNo[it.no] || {};
+      h += '<div class="note" style="margin-top:8px"><strong>'+esc(it.no)+" · " +
+           (s2.points!=null ? s2.points : "–")+"점</strong> — "+esc(it.criterion);
+      if(s2.why) h += "<br>"+esc(s2.why);
+      h += "</div>";
+    });
+    h += "</div>";
+  });
+
+  h += "<h2>숨은 정보</h2><ul class=cuelist>";
+  k.cues.forEach(c => {
+    const g = cueById[c.id] || {};
+    h += "<li class="+(g.recovered?"got":"miss")+">"+esc(c.hidden||c.reveal||c.label) +
+         (c.probe ? '<div class="note">유도 질문: '+esc(c.probe)+"</div>" : "") +
+         (g.how ? '<div class="note">'+esc(g.how)+"</div>" : "") + "</li>";
+  });
+  h += "</ul>";
+
+  if(r.fixes && r.fixes.length){
+    h += "<h2>고칠 문장</h2>";
+    r.fixes.forEach(f => {
+      h += '<div class="fix"><div class="said">'+esc(f.said)+"</div>" +
+           '<div class="better">'+esc(f.better)+"</div></div>";
+    });
+  }
+  if(r.summary) h += "<h2>총평</h2><p>"+esc(r.summary)+"</p>";
+
+  h += "<h2>대본</h2>";
+  S.turns.forEach(t => {
+    h += '<div class="turn '+(t.role==="dr"?"dr":"pt")+'"><div class="who">' +
+         (t.role==="dr" ? "Dentist" : esc(k.patient.name)) +
+         '</div><div class="said">'+esc(t.text)+"</div></div>";
+  });
+  $("report").innerHTML = h;
+}
+
+/* ══════════ 타이머 ══════════ */
+function runRead(){
+  let left = S.kase.readSeconds || 180;
+  const total = left;
+  $("readClock").textContent = mmss(left);
+  $("readClock").className = "timerbig";
+  setClock(0, "");
+  S.readT = setInterval(() => {
+    left--;
+    $("readClock").textContent = mmss(left);
+    setClock(1 - left/total, left <= 30 ? "warn" : "");
+    if(left <= 30) $("readClock").className = "timerbig warn";
+    if(left <= 0){ clearInterval(S.readT); enterStation(); }
+  }, 1000);
+}
+function runStation(){
+  S.stnLeft = S.kase.stationSeconds || 600;
+  const total = S.stnLeft;
+  const tick = () => {
+    $("stnClock").textContent = mmss(S.stnLeft);
+    const st = S.stnLeft <= 0 ? "over" : (S.stnLeft <= 120 ? "warn" : "");
+    setClock(1 - Math.max(0,S.stnLeft)/total, st);
+    $("stnClock").className = "pinclock " + st;
+    if(S.stnLeft <= 0){ clearInterval(S.stnT); }
+    S.stnLeft--;
+  };
+  tick();
+  S.stnT = setInterval(tick, 1000);
+}
+
+/* ══════════ 흐름 ══════════ */
+function buildPinned(){
+  const k = S.kase, card = k.card;
+  $("pinName").textContent = card ? card.patient : (k.title || "");
+  let h = "";
+  if(card){
+    if(card.complaint) h += '<p class="cc">\u201C'+esc(card.complaint)+"\u201D</p>";
+    (card.sections||[]).forEach(sec => {
+      if(!sec.items || !sec.items.length) return;
+      h += '<div class="sec">'+esc(sec.heading.toUpperCase())+"</div><ul>" +
+           sec.items.map(i => "<li>"+esc(i)+"</li>").join("") + "</ul>";
+    });
+    h += '<div class="tasklab">TASK</div><ol>' +
+         (card.tasks||[]).map(t => "<li>"+esc(t)+"</li>").join("") + "</ol>";
+  } else {
+    const c = k.cueCard || {};
+    h += "<p>"+esc(c.setting||"")+"</p>";
+    h += '<div class="tasklab">TASK</div><ol>' +
+         (c.tasks||[]).map(t => "<li>"+esc(t)+"</li>").join("") + "</ol>";
+  }
+  $("pinCard").innerHTML = h;
+  $("pinCard").classList.add("folded");          // 실전처럼 기본은 접힌 상태
+  $("fold").textContent = "카드 펴기";
+}
+
+function enterStation(){
+  clearInterval(S.readT);
+  show("s-station");
+  buildPinned();
+  S.turns = [{ role:"pt", text:S.kase.patient.opening }];
+  drawScript();
+  runStation();
+  recStart();
+  say(S.kase.patient.opening);
+}
+
+$("go").onclick = () => {
+  const key = $("key").value.trim();
+  if(!key){ fail("API 키를 넣으세요."); return; }
+  store.k = key;
+  store.m = $("model").value.trim() || "claude-sonnet-5";
+  store.r = parseFloat($("rate").value) || 1.3;
+  store.rec = $("rec").value;
+  store.end = $("endmode").value;
+  store.eng = $("engine").value;
+  if(store.eng === "11"){
+    store.elk = $("elKey").value.trim();
+    const sel = $("elVoice");
+    if(sel && sel.value){ store.elv = sel.value; store.elvn = sel.options[sel.selectedIndex].text; }
+    if(!store.elk || !store.elv){
+      fail("ElevenLabs 키를 넣고 목소리를 고르거나, 브라우저 기본으로 바꾸세요."); return;
+    }
+  }
+  S.elWarned = false;
+  S.kase = takeCase(+$("caseSel").value);
+  if(!S.kase){ fail("케이스가 없습니다."); return; }
+  primeVoice();
+
+  const card = S.kase.card;
+  $("briefStation").textContent = S.kase.station || "Communication station · 10 minutes";
+
+  let bh = "";
+  if(card){
+    bh += '<p class="who2">'+esc(card.patient)+"</p>";
+    if(card.complaint) bh += '<p class="cc">\u201C'+esc(card.complaint)+"\u201D</p>";
+    (card.sections||[]).forEach(sec => {
+      if(!sec.items || !sec.items.length) return;
+      bh += '<div class="sec">'+esc(sec.heading.toUpperCase())+"</div><ul>" +
+            sec.items.map(i => "<li>"+esc(i)+"</li>").join("") + "</ul>";
+    });
+    $("briefTasks").innerHTML = (card.tasks||[]).map(t => "<li>"+esc(t)+"</li>").join("");
+  } else {
+    const c = S.kase.cueCard || {};
+    bh += "<p>"+esc(c.setting||"")+"</p>";
+    if(c.patient) bh += "<p>"+esc(c.patient)+"</p>";
+    $("briefTasks").innerHTML = (c.tasks||[]).map(t => "<li>"+esc(t)+"</li>").join("");
+  }
+  $("briefBody").innerHTML = bh;
+
+  show("s-brief");
+  runRead();
+};
+
+$("enter").onclick = () => { primeVoice(); enterStation(); };
+$("mic").onclick = () => { primeVoice(); listen(); };
+$("fold").onclick = () => {
+  const c = $("pinCard"), folded = c.classList.toggle("folded");
+  $("fold").textContent = folded ? "카드 펴기" : "카드 접기";
+};
+$("typeIn").onclick = typeTurn;
+$("repeat").onclick = () => { if(S.speaking) say(S.speaking); };
+
+$("finish").onclick = async () => {
+  S.want = false;
+  clearTimeout(S.silT);
+  if(S.listening){ try{ S.recog.stop(); }catch(e){} }
+  speechSynthesis && speechSynthesis.cancel();
+  clearInterval(S.stnT);
+
+  if(S.turns.filter(t => t.role === "dr").length === 0){
+    fail("아직 말한 게 없습니다."); return;
+  }
+
+  await recStop();
+  const btn = $("finish");
+  btn.disabled = true;
+  btn.textContent = "채점 중… 30초쯤";
+
+  let verdict = null, lastErr = null;
+  for(let attempt = 1; attempt <= 2; attempt++){
+    try{ verdict = await mark(); break; }
+    catch(e){
+      lastErr = e;
+      if(attempt === 1) btn.textContent = "다시 시도 중…";
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = "끝내고 채점";
+
+  if(verdict){
+    try{ drawReport(verdict); setClock(0,"");
+         $("saveAudio").classList.toggle("hide", !REC.blob);
+         show("s-report"); return; }
+    catch(e){ lastErr = e; }
+  }
+
+  // 채점 실패 — 대본만은 절대 잃지 않는다
+  const script = S.turns.map(t =>
+    (t.role==="dr" ? "Dentist: " : S.kase.patient.name+": ") + t.text).join("\n\n");
+  $("report").innerHTML =
+    '<div class="err">채점에 실패했습니다: ' + esc(lastErr ? lastErr.message : "알 수 없음") +
+    "</div><p class=note>대본은 아래에 그대로 있습니다. 복사해서 저와의 대화에 붙여넣으면 채점해 드릴 수 있습니다.</p>" +
+    '<button class="btn ghost" id="copyScript">대본 복사</button>' +
+    '<textarea id="rawScript" style="margin-top:14px;min-height:260px">' + esc(script) + "</textarea>";
+  setClock(0,"");
+  $("saveAudio").classList.toggle("hide", !REC.blob);
+  show("s-report");
+  const cb = $("copyScript");
+  if(cb) cb.onclick = () => {
+    const ta = $("rawScript"); ta.select();
+    try{ document.execCommand("copy"); cb.textContent = "복사됨"; }
+    catch(e){ cb.textContent = "직접 길게 눌러 복사하세요"; }
+  };
+};
+
+function reportFile(){
+  const k = S.kase;
+  const when = new Date();
+  const pad = n => String(n).padStart(2,"0");
+  const stamp = when.getFullYear()+pad(when.getMonth()+1)+pad(when.getDate())+
+                "_"+pad(when.getHours())+pad(when.getMinutes());
+  const css = document.querySelector("style").textContent;
+  const html =
+'<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">' +
+'<meta name="viewport" content="width=device-width, initial-scale=1">' +
+'<meta name="color-scheme" content="light only">' +
+"<title>"+esc(k.title||k.id)+" — 채점 결과</title><style>"+css+
+".wrap{padding-bottom:40px}</style></head><body><div class=wrap>" +
+"<h1>"+esc(k.title||k.id)+"</h1>" +
+'<p class="note">'+esc((k.code?k.code+" · ":"")+(k.station||"")) +
+" · "+when.toLocaleString("ko-KR")+"</p>" +
+$("report").innerHTML +
+"</div></body></html>";
+  const name = (k.code ? k.code+"_" : "") + (k.id||"osce") + "_" + stamp + ".html";
+  return { name:name, blob:new Blob([html], {type:"text/html;charset=utf-8"}) };
+}
+
+$("saveReport").onclick = async () => {
+  const f = reportFile();
+  const file = new File([f.blob], f.name, {type:"text/html"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({ files:[file], title:"OSCE 채점 결과" }); return; }
+    catch(e){ if(e && e.name === "AbortError") return; }
+  }
+  const url = URL.createObjectURL(f.blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = f.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+};
+
+$("saveAudio").onclick = async () => {
+  if(!REC.blob) return;
+  const k = S.kase, d = new Date(), pad = n => String(n).padStart(2,"0");
+  const ext = /mp4/.test(REC.blob.type) ? "m4a" : "webm";
+  const name = (k.code ? k.code+"_" : "") + (k.id||"osce") + "_" +
+    d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes())+"."+ext;
+  const file = new File([REC.blob], name, { type: REC.blob.type });
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({ files:[file], title:"OSCE 녹음" }); return; }
+    catch(e){ if(e && e.name === "AbortError") return; }
+  }
+  const url = URL.createObjectURL(REC.blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+};
+
+$("again").onclick = () => { setClock(0,""); show("s-setup"); };
+
+/* ── ElevenLabs ── */
+function toggleEl(){
+  $("elBox").classList.toggle("hide", $("engine").value !== "11");
+}
+$("engine").onchange = toggleEl;
+
+$("elLoad").onclick = async () => {
+  const key = $("elKey").value.trim();
+  if(!key){ fail("ElevenLabs 키를 넣으세요."); return; }
+  store.elk = key;
+  const btn = $("elLoad");
+  btn.disabled = true; btn.textContent = "불러오는 중…";
+  try{
+    const vs = await fetchVoices(key);
+    if(!vs.length) throw new Error("목소리가 하나도 없습니다.");
+    vs.sort((a,b) => {
+      const au = v => /austral/i.test((v.labels && v.labels.accent) || "") ? 0 : 1;
+      return au(a) - au(b) || (a.name||"").localeCompare(b.name||"");
+    });
+    $("elVoice").innerHTML = vs.map(v => {
+      const lab = (v.labels||{});
+      const tag = [lab.accent, lab.gender, lab.age].filter(Boolean).join(" · ");
+      return '<option value="'+esc(v.voice_id)+'">'+esc(v.name) +
+             (tag ? " — "+esc(tag) : "") + "</option>";
+    }).join("");
+    if(store.elv) $("elVoice").value = store.elv;
+    $("elVoiceWrap").classList.remove("hide");
+    btn.textContent = vs.length + "개 불러옴 — 다시 불러오기";
+  }catch(e){
+    fail("목소리를 불러오지 못했습니다: " + e.message);
+    btn.textContent = "목소리 불러오기";
+  }finally{ btn.disabled = false; }
+};
+
+$("openImport").onclick = () => $("importBox").classList.toggle("hide");
+
+$("pickFiles").onchange = async (ev) => {
+  const files = Array.from(ev.target.files || []);
+  if(!files.length) return;
+  let add = [], bad = [];
+  for(const f of files){
+    try{
+      const v = JSON.parse(await f.text());
+      (Array.isArray(v) ? v : [v]).forEach(c => {
+        if(c && c.id) add.push(c); else bad.push(f.name);
+      });
+    }catch(e){ bad.push(f.name); }
+  }
+  ev.target.value = "";
+  if(!add.length){ fail("읽을 수 있는 케이스가 없습니다."); return; }
+  let n = 0;
+  try{ n = store.addPacks(add); }
+  catch(e){ loadCases(); fail(e.message); return; }
+  loadCases();
+  $("importBox").classList.add("hide");
+  fail(n + "개 케이스를 넣었습니다." + (bad.length ? "  읽지 못한 파일: " + bad.join(", ") : ""));
+};
+
+$("doImport").onclick = () => {
+  let add;
+  try{
+    const v = JSON.parse($("importJson").value);
+    add = Array.isArray(v) ? v : [v];
+    add.forEach(c => {
+      if(!c.id || !c.patient || !c.cues || !c.rubric || !c.rubric.domains)
+        throw new Error("id, patient, cues, rubric 이 모두 필요합니다.");
+    });
+  }catch(e){ fail("JSON을 읽지 못했습니다: " + e.message); return; }
+  let n = 0;
+  try{ n = store.addPacks(add); }
+  catch(e){ loadCases(); fail(e.message); return; }
+  loadCases();
+  $("importJson").value = "";
+  $("importBox").classList.add("hide");
+  fail(n + "개 케이스를 넣었습니다.");
+};
+
+/* 시작 */
+$("key").value = store.k;
+$("model").value = store.m;
+$("rate").value = String(store.r);
+migrateOldPacks();
+try{ repairIndex(); }catch(e){}
+$("rec").value = store.rec;
+$("endmode").value = store.end;
+$("engine").value = store.eng;
+$("elKey").value = store.elk;
+toggleEl();
+if(store.eng === "11" && store.elv){
+  $("elVoice").innerHTML = '<option value="'+esc(store.elv)+'">'+esc(store.elvn||"저장된 목소리")+"</option>";
+  $("elVoiceWrap").classList.remove("hide");
+}
+loadCases();
+if(canSpeak) voicesReady().then(vs => { voiceCache = pickVoice(vs, "en-AU"); });
+</script>
+</body>
+</html>
