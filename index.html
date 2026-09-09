@@ -181,6 +181,7 @@
   <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
 
   <div id="compat"></div>
+  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v8 · 롤플레이</p>
 
 
   <label for="key">Anthropic API 키</label>
@@ -619,6 +620,10 @@ function armSilence(){
 }
 
 function startRecog(){
+  if(S.recog){                        // 예전 인식기가 남아 있으면 확실히 끊는다
+    try{ S.recog.onresult = null; S.recog.onend = null; S.recog.onerror = null; }catch(e){}
+    try{ S.recog.abort(); }catch(e){}
+  }
   const r = new SR();
   r.lang = "en-AU";
   r.interimResults = true;
@@ -635,6 +640,7 @@ function startRecog(){
   };
 
   r.onresult = e => {
+    if(S.recog !== r) return;         // 물러난 인식기의 뒤늦은 결과는 버린다
     // 크롬은 결과 목록 전체를 다시 보낸다. 이어 붙이면 같은 말이 겹친다.
     let fin = "", interim = "";
     for(let i = 0; i < e.results.length; i++){
@@ -659,6 +665,7 @@ function startRecog(){
   };
 
   r.onend = () => {
+    if(S.recog !== r) return;         // 물러난 인식기의 종료는 무시
     clearTimeout(S.silT);
     if(S.want){                         // iOS가 멋대로 끊은 것 — 다시 켠다
       S.carry = S.buffer ? S.buffer.trim() + " " : "";
