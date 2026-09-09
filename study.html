@@ -284,17 +284,62 @@ function pickVoice(vs){
       || vs.find(v=>v.lang&&v.lang.replace("_","-").startsWith("en-GB"))
       || vs.find(v=>v.lang&&v.lang.startsWith("en")) || null;
 }
+/* 크롬(안드로이드)은 긴 문장을 15초쯤에서 끊는다. 짧게 잘라 이어 읽는다. */
+function chunkText(text, max){
+  max = max || 170;
+  const out = [];
+  let rest = String(text).trim();
+  while(rest.length > max){
+    let cut = -1;
+    for(const mark of [". ", "? ", "! ", "; ", ", "]){
+      const at = rest.lastIndexOf(mark, max);
+      if(at > cut) cut = at + mark.length;
+    }
+    if(cut <= 0) cut = rest.lastIndexOf(" ", max);
+    if(cut <= 0) cut = max;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if(rest) out.push(rest);
+  return out;
+}
+
+let keepAlive = null;
+function startKeepAlive(){          // 크롬이 도중에 멈추는 걸 막는다
+  stopKeepAlive();
+  keepAlive = setInterval(() => {
+    if(speechSynthesis.speaking && !speechSynthesis.paused){
+      speechSynthesis.pause(); speechSynthesis.resume();
+    }
+  }, 9000);
+}
+function stopKeepAlive(){ if(keepAlive){ clearInterval(keepAlive); keepAlive = null; } }
+
 function speak(text, onEnd){
   if(!canSpeak || !text){ onEnd && onEnd(); return; }
   speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "en-AU"; if(voiceCache) u.voice = voiceCache;
-  u.rate = store.rate; u.pitch = 1.0;
-  u.onend = () => onEnd && onEnd();
-  u.onerror = () => onEnd && onEnd();
-  speechSynthesis.speak(u);
+  const parts = chunkText(text);
+  let i = 0;
+  startKeepAlive();
+
+  const next = () => {
+    if(i >= parts.length){ stopKeepAlive(); onEnd && onEnd(); return; }
+    const u = new SpeechSynthesisUtterance(parts[i++]);
+    u.lang = "en-AU"; if(voiceCache) u.voice = voiceCache;
+    u.rate = store.rate; u.pitch = 1.0;
+    let moved = false;
+    const go = () => { if(!moved){ moved = true; next(); } };
+    u.onend = go;
+    u.onerror = go;
+    speechSynthesis.speak(u);
+    // 끝 신호가 안 오는 경우를 대비한 보험
+    const guess = Math.max(3000, (parts[i-1].length / 12) * 1000 / (store.rate || 1) + 2500);
+    setTimeout(() => { if(!speechSynthesis.speaking) go(); }, guess);
+  };
+  next();
 }
 function stopSpeak(){
+  stopKeepAlive();
   if(canSpeak) speechSynthesis.cancel();
   if(elAudio){ try{ elAudio.pause(); }catch(e){} }
 }
@@ -702,9 +747,9 @@ function runCues(){
   try{
     const ids = store.idx();
     const withMod = ids.filter(m => m.moduleName).length;
-    $("diag").textContent = "v7 · 저장된 케이스 " + ids.length +
+    $("diag").textContent = "v8 · 저장된 케이스 " + ids.length +
       "개 · 세트 붙은 것 " + withMod + "개";
-  }catch(e){ $("diag").textContent = "v7 · 목록 확인 실패"; }
+  }catch(e){ $("diag").textContent = "v8 · 목록 확인 실패"; }
   try{ loadCases(); pickCase(); }
   catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
 
