@@ -747,9 +747,9 @@ function runCues(){
   try{
     const ids = store.idx();
     const withMod = ids.filter(m => m.moduleName).length;
-    $("diag").textContent = "v8 · 저장된 케이스 " + ids.length +
+    $("diag").textContent = "v9 · 저장된 케이스 " + ids.length +
       "개 · 세트 붙은 것 " + withMod + "개";
-  }catch(e){ $("diag").textContent = "v8 · 목록 확인 실패"; }
+  }catch(e){ $("diag").textContent = "v9 · 목록 확인 실패"; }
   try{ loadCases(); pickCase(); }
   catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
 

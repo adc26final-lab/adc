@@ -181,7 +181,7 @@
   <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
 
   <div id="compat"></div>
-  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v8 · 롤플레이</p>
+  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v9 · 롤플레이</p>
 
 
   <label for="key">Anthropic API 키</label>
@@ -589,6 +589,23 @@ async function say(text){
   browserSay(text);
 }
 
+
+/* 안드로이드는 "hi" -> "hi I" -> "hi I am" 처럼 점점 길어진 조각을 각각 확정으로 보낸다.
+   그냥 이어 붙이면 같은 말이 겹친다. 겹치는 부분을 잘라내고 합친다. */
+function mergeSpeech(acc, part){
+  const a = (acc || "").trim(), b = (part || "").trim();
+  if(!b) return a;
+  if(!a) return b;
+  const la = a.toLowerCase(), lb = b.toLowerCase();
+  if(lb.startsWith(la)) return b;          // 앞 조각이 길어진 것
+  if(la.endsWith(lb) || la.includes(lb)) return a;   // 이미 들어 있는 내용
+  const max = Math.min(la.length, lb.length);
+  for(let k = max; k >= 4; k--){           // 꼬리와 머리가 겹치면 그만큼 잘라낸다
+    if(la.slice(-k) === lb.slice(0, k)) return a + b.slice(k);
+  }
+  return a + " " + b;
+}
+
 function listen(){
   if(!SR){ typeTurn(); return; }
 
@@ -645,10 +662,11 @@ function startRecog(){
     let fin = "", interim = "";
     for(let i = 0; i < e.results.length; i++){
       const t = e.results[i][0].transcript;
-      if(e.results[i].isFinal) fin += t + " "; else interim += t + " ";
+      if(e.results[i].isFinal) fin = mergeSpeech(fin, t);
+      else interim = mergeSpeech(interim, t);
     }
-    S.buffer = (S.carry + fin).replace(/\s+/g, " ");
-    drawInterim((S.buffer + " " + interim).replace(/\s+/g, " ").trim());
+    S.buffer = mergeSpeech(S.carry, fin);
+    drawInterim(mergeSpeech(S.buffer, interim));
     armSilence();                      // 말이 이어지는 동안 계속 미룬다
   };
 
@@ -668,7 +686,7 @@ function startRecog(){
     if(S.recog !== r) return;         // 물러난 인식기의 종료는 무시
     clearTimeout(S.silT);
     if(S.want){                         // iOS가 멋대로 끊은 것 — 다시 켠다
-      S.carry = S.buffer ? S.buffer.trim() + " " : "";
+      S.carry = S.buffer ? S.buffer.trim() : "";
       setTimeout(() => { if(S.want){ try{ startRecog(); }catch(e){ S.want = false; } } }, 200);
       return;
     }
