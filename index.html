@@ -106,6 +106,8 @@
            padding:14px 15px; font-family:var(--serif); font-size:14.5px; line-height:1.5;
            max-height:38vh; overflow-y:auto; -webkit-overflow-scrolling:touch}
   #pinCard.folded{display:none}
+  .pace{font-size:13px; color:var(--ink-soft); padding:0 0 8px; font-variant-numeric:tabular-nums}
+  .pace b{color:var(--ink)}
   #pinCard .cc{font-style:italic; margin:0 0 11px}
   #pinCard .sec{font-family:var(--sans); font-size:10.5px; font-weight:700;
                 letter-spacing:.05em; color:var(--teal); margin:11px 0 3px}
@@ -184,7 +186,7 @@
   <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
 
   <div id="compat"></div>
-  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v10 · 롤플레이 · 내가 먼저 인사</p>
+  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v11 · 롤플레이 · 내가 먼저 인사 · 블록 페이스</p>
 
 
   <label for="key">Anthropic API 키</label>
@@ -304,6 +306,7 @@
       <span class="pinname" id="pinName"></span>
       <button id="fold">카드 접기</button>
     </div>
+    <div class="pace hide" id="pace"></div>
     <div id="pinCard"></div>
   </div>
   <div id="script"></div>
@@ -1497,7 +1500,25 @@ function runRead(){
     if(left <= 0){ clearInterval(S.readT); enterStation(); }
   }, 1000);
 }
+/* 블록 페이스: 지금 시계로 어느 블록이어야 하는지 · 블록이 바뀌면 진동 */
+function drawPace(el){
+  const bs = S.kase.blocks || [], e = $("pace");
+  if(!e) return;
+  if(!bs.length){ e.classList.add("hide"); return; }
+  e.classList.remove("hide");
+  let end = 0, i = 0;
+  for(; i < bs.length; i++){ end += bs[i].sec; if(el < end) break; }
+  if(i >= bs.length){ e.textContent = "마무리 시간"; return; }
+  const nx = bs[i+1];
+  e.innerHTML = "지금 <b>" + esc(bs[i].name) + "</b> · " + mmss(end - el) + " 남음" +
+                (nx ? " · 다음 " + esc(nx.name) : "");
+  if(S.paceAt !== i){
+    if(S.paceAt != null){ try{ navigator.vibrate && navigator.vibrate(120); }catch(err){} }
+    S.paceAt = i;
+  }
+}
 function runStation(){
+  S.paceAt = null;
   S.stnLeft = S.kase.stationSeconds || 600;
   const total = S.stnLeft;
   const tick = () => {
@@ -1512,6 +1533,7 @@ function runStation(){
     const st = S.stnLeft <= 0 ? "over" : (S.stnLeft <= 120 ? "warn" : "");
     setClock(1 - Math.max(0,S.stnLeft)/total, st);
     $("stnClock").className = "pinclock " + st;
+    drawPace(total - S.stnLeft);
     if(S.stnLeft <= 0){ clearInterval(S.stnT); }
     S.stnLeft--;
   };
