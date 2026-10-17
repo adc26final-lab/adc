@@ -166,6 +166,12 @@
   table.ans .chk button{flex:1;padding:6px 2px;border:1px solid var(--rule);border-radius:3px;font-size:12px;
                         background:var(--paper);color:var(--ink-soft)}
   table.ans .chk button.on{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .heard{font-size:14.5px;line-height:1.45;margin-top:8px;padding:8px 10px;background:var(--paper);
+         border-radius:3px;min-height:1.5em;color:var(--ink)}
+  .heard .int{color:var(--ink-soft)}
+  .heard:empty::before{content:"듣는 중…";color:var(--ink-soft);font-size:13px}
+  .heard.off{display:none}
+  .said{font-size:13.5px;color:var(--ink-soft);line-height:1.45;margin:4px 0 0}
   .flip{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:12px 14px;margin-bottom:8px}
   .flip .q{font-size:15px;font-weight:600}
   .flip .a{font-size:14.5px;margin-top:8px}
@@ -807,6 +813,8 @@ const opt = {
   set view(v){ try{ localStorage.setItem("study.view", v); }catch(e){} },
   get pt(){ try{ return localStorage.getItem("study.pt") || "voice"; }catch(e){ return "voice"; } },
   set pt(v){ try{ localStorage.setItem("study.pt", v); }catch(e){} },
+  get stt(){ try{ return localStorage.getItem("study.stt") || (SRC ? "auto" : "off"); }catch(e){ return "off"; } },
+  set stt(v){ try{ localStorage.setItem("study.stt", v); }catch(e){} },
   get rec(){ try{ return localStorage.getItem("study.brec") || "off"; }catch(e){ return "off"; } },
   set rec(v){ try{ localStorage.setItem("study.brec", v); }catch(e){} }
 };
@@ -870,7 +878,12 @@ function blockList(){
   h += '<label>보기</label>' + segHTML("view",
          [["all","대본 전체"],["key","키워드만"],["todo","할 일만 · 자유"]], opt.view);
   h += '<label>환자 대사</label>' + segHTML("pt", [["voice","소리로 듣기"],["time","시간만 더하기"]], opt.pt);
+  h += '<label>음성인식</label>' + (SRC
+       ? segHTML("stt", [["off","끄기"],["on","받아쓰기만"],["auto","맞게 말하면 자동 넘김"]], opt.stt)
+       : '<p class="note">이 브라우저는 음성인식을 지원하지 않습니다. 크롬 · 사파리 최신 버전에서 됩니다.</p>');
   h += '<label>내 목소리 녹음</label>' + segHTML("rec", [["off","끄기"],["on","켜기"]], opt.rec);
+  h += '<p class="note">음성인식 언어는 롤플레이 앱에서 고른 것을 씁니다 (기본 영어 호주). ' +
+       '녹음과 음성인식을 같이 켜면 안 되는 폰이 있습니다 — 그때는 하나만 켜세요.</p>';
   h += '<p class="note">키워드만: 내 대사는 가리고 할 일 · 핵심 대사만 보입니다. ' +
        '시간만 더하기: 환자 대사를 읽지 않고 150 WPM 환산 시간만 시계에 더합니다.</p><div class="bh">블록</div>';
   h += bs.map((b,i) => {
@@ -891,13 +904,88 @@ function blockList(){
 }
 
 /* ── 블록 말하기: 진행 ── */
-const R = { a:0, z:0, bi:0, ti:0, t0:0, off:0, bStart:0, run:false, timer:null, buzzed:false, splits:[], waitPt:false };
+/* ── 음성인식: 내 차례에만 듣는다 (환자 음성이 나오는 동안은 끈다) ── */
+const SRC = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const STT = { r:null, last:null, want:false, fin:"", inter:"", restarts:0 };
+const srLang = () => { try{ return localStorage.getItem("osce.srlang") || "en-AU"; }catch(e){ return "en-AU"; } };
+const sttOn = () => !!SRC && opt.stt !== "off";
+function sttStart(){
+  if(!sttOn()) return;
+  STT.want = true;
+  if(STT.r) return;
+  let r;
+  try{ r = new SRC(); }catch(e){ return; }
+  r.lang = srLang(); r.interimResults = true; r.continuous = true;
+  r.pre = STT.fin;                     // 다시 켜도 앞에서 들은 말은 이어 붙인다
+  STT.r = r; STT.last = r;
+  r.onresult = e => {
+    if(STT.last !== r) return;
+    STT.restarts = 0;
+    let fin = "", inter = "";
+    for(let i = 0; i < e.results.length; i++){
+      const t = e.results[i][0].transcript;
+      if(e.results[i].isFinal) fin += " " + t; else inter += " " + t;
+    }
+    STT.fin = (r.pre + " " + fin).replace(/\s+/g, " ").trim();
+    STT.inter = inter.trim();
+    sttShow(); sttCheck();
+  };
+  r.onerror = e => {
+    const k = e && e.error;
+    if(k === "not-allowed" || k === "service-not-allowed"){
+      STT.want = false;
+      alert("마이크 권한이 거부됐습니다. 브라우저 설정에서 허용하거나 음성인식을 끄세요.");
+    }
+  };
+  r.onend = () => {
+    if(STT.r === r) STT.r = null;
+    if(STT.last === r) STT.inter = "";
+    if(STT.want && R.run && STT.last === r && STT.restarts++ < 40)   // 조용하면 저절로 끊긴다 — 다시 켠다
+      setTimeout(() => { if(STT.want && !STT.r) sttStart(); }, 150);
+  };
+  try{ r.start(); }catch(e){ STT.r = null; }
+}
+function sttStop(){
+  STT.want = false;
+  const r = STT.r; STT.r = null;
+  if(r){ try{ r.stop(); }catch(e){} }  // stop: 마지막 말까지 확정해서 받는다
+}
+function sttReset(){ sttStop(); STT.fin = ""; STT.inter = ""; STT.last = null; }
+const heardSince = base => STT.fin.slice(base).trim();
+function sttShow(){
+  const e = $("heard");
+  if(!e) return;
+  const fin = heardSince(R.turnBase);
+  e.innerHTML = esc(fin) + (STT.inter ? ' <span class="int">' + esc(STT.inter) + "</span>" : "");
+}
+/* 내용어(3글자 이상 · 흔한 말 제외)가 얼마나 들렸나 */
+const STOPW = new Set("the and you your are was were for that this with have has had not but can will just what when how who why our out all any its it's i'm don't from they them their there then than into about would could should may might also very".split(" "));
+const cwords = s => String(s||"").toLowerCase().replace(/[’']/g,"'").match(/[a-z0-9']+/g) || [];
+function cover(target, heard){
+  const want = [...new Set(cwords(target).filter(w => w.length >= 3 && !STOPW.has(w)))];
+  if(!want.length) return 1;
+  const got = new Set(cwords(heard));
+  return want.filter(w => got.has(w) || got.has(w.replace(/s$/,"")) || got.has(w+"s")).length / want.length;
+}
+function sttCheck(){
+  if(opt.stt !== "auto" || !R.run || opt.view === "todo" || R.autoT) return;
+  const t = blocks()[R.bi].turns[R.ti];
+  if(!t || t.who !== "dr") return;
+  if(cover(t.en, heardSince(R.turnBase) + " " + STT.inter) >= 0.75){
+    R.autoT = setTimeout(() => { R.autoT = null; if(R.run && blocks()[R.bi].turns[R.ti] === t) advance(); }, 500);
+  }
+}
+
+const R = { a:0, z:0, bi:0, ti:0, t0:0, off:0, bStart:0, run:false, timer:null, buzzed:false, splits:[], waitPt:false,
+            turnBase:0, blockBase:0, autoT:null, said:[] };
 const now = () => R.run ? (Date.now() - R.t0)/1000 + R.off : 0;
 
 function runBlock(a, z){
   stopSpeak();
   if(REC.url){ URL.revokeObjectURL(REC.url); REC.url = null; }
-  Object.assign(R, { a:a, z:z, bi:a, ti:0, t0:0, off:0, bStart:0, run:false, buzzed:false, splits:[], waitPt:false });
+  sttReset(); clearTimeout(R.autoT);
+  Object.assign(R, { a:a, z:z, bi:a, ti:0, t0:0, off:0, bStart:0, run:false, buzzed:false, splits:[], waitPt:false,
+                     turnBase:0, blockBase:0, autoT:null, said:[] });
   clearInterval(R.timer);
   const bs = blocks();
   $("runTitle").textContent = a === z ? CIRC[a]+" "+bs[a].name : CIRC[a]+" → "+CIRC[z]+" 이어서";
@@ -947,10 +1035,15 @@ function drawBlock(){
       const ms = dr && (b.mustsay||[]).some(m => t.en.includes(m.split("?")[0]));
       return '<div class="turn '+(dr ? "dr" : "pt")+(cur ? " now" : (R.run && i > R.ti ? " dim" : ""))+'" id="bt'+i+'">' +
         '<div class="who">'+(dr ? "Dentist" : "Patient")+(ms ? " · must-say" : "")+"</div>" +
-        (hide ? '<div class="en hid">— 내 차례 —</div>' : '<div class="en">'+esc(t.en)+"</div>") + "</div>";
+        (hide ? '<div class="en hid">— 내 차례 —</div>' : '<div class="en">'+esc(t.en)+"</div>") +
+        (cur && dr && sttOn() ? '<div class="heard" id="heard"></div>' : "") +
+        (dr && R.said[i] != null && i < R.ti ? '<div class="said">들린 말: '+esc(R.said[i] || "—")+"</div>" : "") + "</div>";
     }).join("");
+  } else if(R.run && sttOn()){
+    h += '<div class="bh">들린 말</div><div class="heard" id="heard"></div>';
   }
   $("runBody").innerHTML = h;
+  sttShow();
   const e = $("bt"+R.ti); if(R.run && e) e.scrollIntoView({ block:"center" });
 }
 function runDock(){
@@ -964,9 +1057,10 @@ function runDock(){
 }
 function step(){
   const b = blocks()[R.bi];
-  if(opt.view === "todo"){ drawBlock(); runDock(); return; }
+  if(opt.view === "todo"){ R.turnBase = R.blockBase; drawBlock(); runDock(); sttStart(); return; }
   const t = b.turns[R.ti];
   if(!t){ blockDone(); return; }
+  if(t.who === "dr") R.turnBase = STT.fin.length;
   drawBlock();
   if(t.who === "pt"){
     if(opt.pt === "time"){
@@ -974,32 +1068,38 @@ function step(){
       R.ti++; setTimeout(step, 350); return;
     }
     R.waitPt = true; runDock();
+    sttStop();                                   // 환자 음성을 받아쓰지 않게
     speak(t.en, () => { if(!R.run || blocks()[R.bi] !== b || b.turns[R.ti] !== t) return;
                         R.waitPt = false; R.ti++; step(); });
     return;
   }
   runDock();
+  sttStart();
 }
 function advance(){
   if(!R.run) return;
   stopSpeak(); R.waitPt = false;
+  clearTimeout(R.autoT); R.autoT = null;
   if(opt.view === "todo"){ blockDone(); return; }
+  const t = blocks()[R.bi].turns[R.ti];
+  if(t && t.who === "dr" && sttOn()) R.said[R.ti] = heardSince(R.turnBase);
   R.ti++;
   if(R.ti >= blocks()[R.bi].turns.length) blockDone(); else step();
 }
 function blockDone(){
   const b = blocks()[R.bi], t = now();
-  R.splits.push({ i:R.bi, sec:t - R.bStart });
+  R.splits.push({ i:R.bi, sec:t - R.bStart, said: sttOn() ? heardSince(R.blockBase) : null });
   rec.addBlock(b.no, t - R.bStart);
   if(R.bi < R.z){
     R.bi++; R.ti = 0; R.bStart = t; R.buzzed = false;
+    R.said = []; R.blockBase = R.turnBase = STT.fin.length;
     try{ navigator.vibrate && navigator.vibrate([80,60,80]); }catch(e){}
     step();
   } else finishRun(false);
 }
 async function finishRun(early){
   clearInterval(R.timer);
-  stopSpeak();
+  stopSpeak(); sttStop(); clearTimeout(R.autoT);
   const total = now();
   R.run = false;
   if(REC.on) await recStop();
@@ -1022,18 +1122,28 @@ async function finishRun(early){
     if(early) h += '<p class="note">중간에 멈춘 블록은 기록하지 않았습니다.</p>';
     if(opt.pt === "time") h += '<p class="note">환자 대사 시간 '+Math.round(R.off)+"초를 계산으로 더했습니다.</p>";
     const ms = [];
-    R.splits.forEach(s => (bs[s.i].mustsay||[]).forEach(m => ms.push(m)));
+    R.splits.forEach(s => (bs[s.i].mustsay||[]).forEach(m => ms.push({ m:m, said:s.said })));
     if(ms.length){
-      h += '<div class="bh">꼭 말할 것 — 말했나요?</div>' + ms.map((m,i) =>
-        '<div class="slot" id="ms'+i+'"><div class="body">'+esc(m)+'</div><div class="mk">' +
-        '<button data-ms="'+i+'" data-v="1">말했음</button><button data-ms="'+i+'" data-v="0">놓침</button></div></div>').join("");
+      const auto = R.splits.some(s => s.said != null);
+      h += '<div class="bh">꼭 말할 것 — '+(auto ? "음성인식 판정 (틀리면 버튼으로 고치세요)" : "말했나요?")+"</div>" + ms.map((x,i) => {
+        const c = x.said != null ? cover(x.m, x.said) : null;
+        const cls = c == null ? "" : (c >= 0.7 ? " got" : " miss");
+        return '<div class="slot'+cls+'" id="ms'+i+'"><div class="body">'+esc(x.m)+"</div>" +
+          (c != null ? '<div class="probe">핵심 단어 '+Math.round(c*100)+"% 들림</div>" : "") +
+          '<div class="mk"><button data-ms="'+i+'" data-v="1">말했음</button><button data-ms="'+i+'" data-v="0">놓침</button></div></div>';
+      }).join("");
+    }
+    const heard = R.splits.filter(s => s.said != null);
+    if(heard.length){
+      h += '<div class="bh">들린 말</div>' + heard.map(s =>
+        '<p class="note"><b>'+CIRC[s.i]+" "+esc(bs[s.i].name)+"</b> "+esc(s.said || "— (들린 말 없음)")+"</p>").join("");
     }
   }
   if(REC.url) h += '<div class="recbar"><button id="recPlay">내 목소리 듣기</button></div>';
   $("runBody").innerHTML = h;
   document.querySelectorAll("[data-ms]").forEach(b => b.onclick = () => {
-    const s = $("ms"+b.dataset.ms); s.classList.add(b.dataset.v === "1" ? "got" : "miss");
-    s.querySelector(".mk").remove();
+    const s = $("ms"+b.dataset.ms), ok = b.dataset.v === "1";
+    s.classList.toggle("got", ok); s.classList.toggle("miss", !ok);
   });
   if($("recPlay")) $("recPlay").onclick = recPlay;
   dock([{ label:"목록", sec:true, go:() => { $("runTitle").textContent = "블록 말하기"; blockList(); } },
@@ -1041,7 +1151,7 @@ async function finishRun(early){
   window.scrollTo(0,0);
 }
 function stopBlock(){
-  clearInterval(R.timer); R.run = false; stopSpeak();
+  clearInterval(R.timer); R.run = false; stopSpeak(); sttStop(); clearTimeout(R.autoT);
   $("runTitle").textContent = "블록 말하기";
   blockList();
 }
@@ -1160,9 +1270,9 @@ function runCards(){
   try{
     const ids = store.idx();
     const withMod = ids.filter(m => m.moduleName).length;
-    $("diag").textContent = "v11 · 공부 · 블록 연습 · 저장된 케이스 " + ids.length +
+    $("diag").textContent = "v12 · 공부 · 블록 연습 · 음성인식 · 저장된 케이스 " + ids.length +
       "개 · 세트 붙은 것 " + withMod + "개";
-  }catch(e){ $("diag").textContent = "v11 · 공부 · 목록 확인 실패"; }
+  }catch(e){ $("diag").textContent = "v12 · 공부 · 목록 확인 실패"; }
   try{ loadCases(); pickCase(); }
   catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
 
