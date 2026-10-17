@@ -126,6 +126,50 @@
   .dock button.sec{background:var(--card);color:var(--teal);border:1px solid var(--rule);
                    font-weight:500}
   .dock button:disabled{opacity:.4}
+  /* 모드 · 블록 */
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .mode{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:13px 13px;text-align:left}
+  .mode .t{font-weight:600;font-size:15px}
+  .mode .d{font-size:12.5px;color:var(--ink-soft);margin-top:3px;line-height:1.4}
+  .mode:disabled{opacity:.4}
+  .blk{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:12px 14px;margin-bottom:8px}
+  .blk .hd{display:flex;gap:10px;align-items:baseline}
+  .blk .nm{flex:1;font-weight:600;font-size:15px}
+  .blk .tm{font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink-soft)}
+  .blk .todo{font-size:13.5px;color:var(--ink-soft);margin-top:4px;line-height:1.45}
+  .blk .rec{font-size:12.5px;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--ink-soft)}
+  .blk .acts{display:flex;gap:8px;margin-top:10px}
+  .blk .acts button{flex:1;padding:9px;border:1px solid var(--rule);border-radius:3px;font-size:13.5px;
+                    color:var(--teal);background:var(--paper)}
+  .ok{color:var(--teal);font-weight:600} .bad{color:var(--red);font-weight:600} .warnc{color:var(--amber);font-weight:600}
+  .clockbox{position:sticky;top:3px;z-index:40;background:var(--paper);padding:8px 0 10px;
+            border-bottom:1px solid var(--rule);margin-bottom:14px}
+  .clockbox .row1{display:flex;align-items:baseline;gap:12px}
+  .clockbox .big{font-family:var(--serif);font-size:40px;font-variant-numeric:tabular-nums;line-height:1}
+  .clockbox .big.warn{color:var(--amber)} .clockbox .big.over{color:var(--red)}
+  .clockbox .tgt{font-size:13.5px;color:var(--ink-soft)}
+  .clockbox .bn{font-size:13px;color:var(--ink-soft);margin-top:4px}
+  .seg{display:flex;gap:6px;margin:6px 0 4px}
+  .seg button{flex:1;padding:8px 4px;border:1px solid var(--rule);border-radius:3px;font-size:13px;
+              background:var(--card);color:var(--ink-soft)}
+  .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .keys{font-size:14.5px;line-height:1.5;margin:0;padding-left:18px}
+  .keys li{margin-bottom:4px}
+  .ms{background:#FFF4E5;border-left:3px solid var(--amber);padding:1px 4px}
+  .turn .en.hid{color:var(--ink-soft);font-style:italic;font-size:14px}
+  .bh{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--teal);margin:18px 0 8px}
+  table.ans{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--card)}
+  table.ans th,table.ans td{border:1px solid var(--rule);padding:7px 8px;vertical-align:top;text-align:left}
+  table.ans th{background:var(--teal-pale);font-weight:600;font-size:12.5px}
+  table.ans td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
+  table.ans .chk{display:flex;gap:6px;margin-top:6px}
+  table.ans .chk button{flex:1;padding:6px 2px;border:1px solid var(--rule);border-radius:3px;font-size:12px;
+                        background:var(--paper);color:var(--ink-soft)}
+  table.ans .chk button.on{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .flip{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:12px 14px;margin-bottom:8px}
+  .flip .q{font-size:15px;font-weight:600}
+  .flip .a{font-size:14.5px;margin-top:8px}
+  .flip .a.veil{filter:blur(7px);user-select:none}
   @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -168,7 +212,11 @@
     <p class="note">1·2단계는 재생량이 많아 항상 기본 음성을 씁니다. 3단계 확인 버튼에서만 쓰입니다.</p>
   </div>
 
-  <h2>단계</h2>
+  <h2>연습 모드</h2>
+  <div class="modes" id="modes"></div>
+  <p class="note" id="modeNote"></p>
+
+  <h2>대본 단계</h2>
   <div class="steps" id="steps"></div>
 
   <button class="btn ghost" id="reset">이 케이스 진도 초기화</button>
@@ -543,6 +591,7 @@ function takeCase(i){
   return built || store.load(m.id);
 }
 function drawSteps(){
+  drawModes();
   if(!S.kase){
     $("steps").innerHTML =
       '<div class="step"><div class="n">·</div><div><div class="t">케이스가 없습니다</div>' +
@@ -595,13 +644,16 @@ function open_(step){
   $("s-run").classList.add("on"); window.scrollTo(0,0);
 }
 function turns(){ return (S.kase.study && S.kase.study.turns) || []; }
-function drTurns(){ return turns().filter(t => t.who === "dr"); }
+function drTurns(){ return turns().filter(t => t.who === "dr" && t.ko); }
 
 function start(step){
   if(!S.kase){ alert("케이스를 먼저 넣으세요."); return; }
   if(step === 4){ location.href = "index.html"; return; }
   if(step <= 2 && !turns().length){
     alert("이 케이스에는 스크립트가 없습니다. 변환을 다시 해보세요."); return;
+  }
+  if(step === 2 && !drTurns().length){
+    alert("이 케이스 대본에는 한국어가 없습니다. 블록 말하기의 '키워드만' 보기로 연습하세요."); return;
   }
   open_(step);
   if(step === 0) runListen();
@@ -616,7 +668,7 @@ function runListen(){
   $("runBody").innerHTML = ts.map((t,i) =>
     '<div class="turn '+(t.who==="dr"?"dr":"pt")+'" id="t'+i+'">' +
     '<div class="who">'+(t.who==="dr"?"Dentist":"Patient")+"</div>" +
-    '<div class="en">'+esc(t.en)+'</div><div class="ko">'+esc(t.ko)+"</div></div>").join("");
+    '<div class="en">'+esc(t.en)+"</div>"+(t.ko?'<div class="ko">'+esc(t.ko)+"</div>":"")+"</div>").join("");
 
   const mark = i => {
     document.querySelectorAll(".turn").forEach(e=>e.classList.remove("now"));
@@ -652,7 +704,7 @@ function runShadow(){
     $("runBody").innerHTML = ts.map((t,i) =>
       '<div class="turn '+(t.who==="dr"?"dr":"pt")+(i===S.i?" now":" dim")+'" id="t'+i+'">' +
       '<div class="who">'+(t.who==="dr"?"Dentist":"Patient")+"</div>" +
-      '<div class="en">'+esc(t.en)+'</div><div class="ko">'+esc(t.ko)+"</div></div>").join("")
+      '<div class="en">'+esc(t.en)+"</div>"+(t.ko?'<div class="ko">'+esc(t.ko)+"</div>":"")+"</div>").join("")
       + recBar();
     wireRec();
     const e = $("t"+S.i); if(e) e.scrollIntoView({block:"center"});
@@ -690,22 +742,9 @@ function runRecall(){
 
 /* 3 — Cue 떠올리기 */
 function runCues(){
-  const k = S.kase, card = k.card, cues = k.cues || [];
-  let h = '<div class="cue"><div class="ci">CANDIDATE INSTRUCTIONS</div>';
-  if(card){
-    h += '<p class="who2">'+esc(card.patient)+"</p>";
-    if(card.complaint) h += '<p class="cc">\u201C'+esc(card.complaint)+"\u201D</p>";
-    (card.sections||[]).forEach(s => {
-      if(!s.items || !s.items.length) return;
-      h += '<div class="sec">'+esc(s.heading.toUpperCase())+"</div><ul>" +
-           s.items.map(i=>"<li>"+esc(i)+"</li>").join("")+"</ul>";
-    });
-    h += '<div class="tasklab">TASK</div><ol>' +
-         (card.tasks||[]).map(t=>"<li>"+esc(t)+"</li>").join("")+"</ol>";
-  } else {
-    h += "<p>"+esc((k.cueCard&&k.cueCard.setting)||"")+"</p>";
-  }
-  h += "</div><h2>물어야 할 것 "+cues.length+"가지</h2>";
+  const k = S.kase, cues = k.cues || [];
+  let h = cardHTML(k);
+  h += "<h2>물어야 할 것 "+cues.length+"가지</h2>";
   h += cues.map((c,i) =>
     '<div class="slot" id="c'+i+'"><div class="body veil">'+esc(c.hidden||"")+"</div>" +
     (c.probe ? '<div class="probe hide">유도 질문: '+esc(c.probe)+"</div>" : "") +
@@ -733,6 +772,380 @@ function runCues(){
   dock([{label:"처음으로",sec:true,go:home},{label:"완료",go:finishStep}]);
 }
 
+/* ══════════ 연습 모드 (블록 대본이 있는 케이스) ══════════ */
+const MODES = [
+  { id:"blocks",  t:"블록 말하기", d:"블록 하나를 그 블록 시간 안에 말합니다." },
+  { id:"summary", t:"3분 요약",    d:"큐카드만 보고 종이에 블록표를 씁니다." },
+  { id:"cards",   t:"블록 카드",   d:"블록마다 할 일 · 꼭 말할 것 · curveball." }
+];
+const CIRC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮";
+const P_WPS = 150/60;     // 환자 150 WPM — 대본 환산과 같은 속도
+const wc = s => String(s||"").replace(/\([^)]*\)/g," ").split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w)).length;
+const mmss = s => { s = Math.max(0, Math.round(s)); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); };
+function judge(sec, tgt){
+  const d = (sec - tgt) / tgt;
+  return Math.abs(d) <= 0.1 ? ["ok","○"] : (d > 0 ? ["bad","길다"] : ["warnc","짧다"]);
+}
+const dev = (sec, tgt) => { const d = Math.round((sec-tgt)/tgt*100); return (d > 0 ? "+" : "") + d + "%"; };
+const blocks = () => (S.kase && S.kase.blocks) || [];
+
+const rec = {
+  get(key){ try{ return JSON.parse(localStorage.getItem(key) || "null"); }catch(e){ return null; } },
+  set(key, v){ try{ localStorage.setItem(key, JSON.stringify(v)); }catch(e){} },
+  addBlock(no, sec){
+    const key = "study.b."+S.kase.id, r = rec.get(key) || {};
+    (r[no] = r[no] || []).push(Math.round(sec));
+    r[no] = r[no].slice(-20);
+    rec.set(key, r);
+  },
+  blocks(){ return rec.get("study.b."+S.kase.id) || {}; },
+  sums(){ return rec.get("study.s."+S.kase.id) || []; },
+  addSum(x){ const r = rec.sums(); r.push(x); rec.set("study.s."+S.kase.id, r.slice(-30)); }
+};
+const opt = {
+  get view(){ try{ return localStorage.getItem("study.view") || "key"; }catch(e){ return "key"; } },
+  set view(v){ try{ localStorage.setItem("study.view", v); }catch(e){} },
+  get pt(){ try{ return localStorage.getItem("study.pt") || "voice"; }catch(e){ return "voice"; } },
+  set pt(v){ try{ localStorage.setItem("study.pt", v); }catch(e){} },
+  get rec(){ try{ return localStorage.getItem("study.brec") || "off"; }catch(e){ return "off"; } },
+  set rec(v){ try{ localStorage.setItem("study.brec", v); }catch(e){} }
+};
+
+function drawModes(){
+  const ok = blocks().length > 0;
+  $("modes").innerHTML = MODES.map(m =>
+    '<button class="mode" data-m="'+m.id+'"'+(ok ? "" : " disabled")+'><div class="t">'+esc(m.t)+
+    '</div><div class="d">'+esc(m.d)+"</div></button>").join("");
+  $("modeNote").textContent = !S.kase ? "" :
+    (ok ? "" : "이 케이스는 아직 블록 대본이 없습니다. 대본이 나오면 케이스를 다시 불러오세요.");
+  document.querySelectorAll(".mode").forEach(b => b.onclick = () => openMode(b.dataset.m));
+}
+function openMode(id){
+  stopSpeak(); S.playing = false;
+  const m = MODES.find(x => x.id === id);
+  $("runTitle").textContent = m.t;
+  $("runHow").textContent = "";
+  document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
+  $("s-run").classList.add("on"); window.scrollTo(0,0);
+  if(id === "blocks") blockList();
+  else if(id === "summary") runSummary();
+  else runCards();
+}
+
+function cardHTML(k){
+  const card = k.card;
+  let h = '<div class="cue"><div class="ci">CANDIDATE INSTRUCTIONS</div>';
+  if(card){
+    h += '<p class="who2">'+esc(card.patient)+"</p>";
+    if(card.complaint) h += '<p class="cc">“'+esc(card.complaint)+"”</p>";
+    (card.sections||[]).forEach(s => {
+      if(!s.items || !s.items.length) return;
+      h += '<div class="sec">'+esc(s.heading.toUpperCase())+"</div><ul>" +
+           s.items.map(i => "<li>"+esc(i)+"</li>").join("")+"</ul>";
+    });
+    h += '<div class="tasklab">TASK</div><ol>' +
+         (card.tasks||[]).map(t => "<li>"+esc(t)+"</li>").join("")+"</ol>";
+  } else {
+    h += "<p>"+esc((k.cueCard && k.cueCard.setting) || "")+"</p>";
+  }
+  return h + "</div>";
+}
+function segHTML(name, items, cur){
+  return '<div class="seg" data-seg="'+name+'">' + items.map(([v,l]) =>
+    '<button data-v="'+v+'" class="'+(v === cur ? "on" : "")+'">'+esc(l)+"</button>").join("") + "</div>";
+}
+function wireSeg(after){
+  document.querySelectorAll(".seg").forEach(g => g.querySelectorAll("button").forEach(b => b.onclick = () => {
+    opt[g.dataset.seg] = b.dataset.v;
+    g.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    after && after();
+  }));
+}
+
+/* ── 블록 말하기: 목록 ── */
+function blockList(){
+  const bs = blocks(), r = rec.blocks();
+  let h = '<p class="lede">블록을 고르면 그 블록 시간으로 잽니다. 목표 ±10% 안이면 ○. ' +
+          '여러 블록을 이어서 하면 블록마다 따로 기록합니다.</p>';
+  h += '<label>보기</label>' + segHTML("view",
+         [["all","대본 전체"],["key","키워드만"],["todo","할 일만 · 자유"]], opt.view);
+  h += '<label>환자 대사</label>' + segHTML("pt", [["voice","소리로 듣기"],["time","시간만 더하기"]], opt.pt);
+  h += '<label>내 목소리 녹음</label>' + segHTML("rec", [["off","끄기"],["on","켜기"]], opt.rec);
+  h += '<p class="note">키워드만: 내 대사는 가리고 할 일 · 핵심 대사만 보입니다. ' +
+       '시간만 더하기: 환자 대사를 읽지 않고 150 WPM 환산 시간만 시계에 더합니다.</p><div class="bh">블록</div>';
+  h += bs.map((b,i) => {
+    const xs = (r[b.no] || []).slice(-3);
+    return '<div class="blk"><div class="hd"><span class="nm">'+CIRC[i]+" "+esc(b.name)+"</span>" +
+      '<span class="tm">'+mmss(b.sec)+" · ~"+esc(b.end)+"</span></div>" +
+      '<div class="todo">'+esc(b.todo)+"</div>" +
+      (xs.length ? '<div class="rec">최근 ' + xs.map(x => {
+         const j = judge(x, b.sec); return '<span class="'+j[0]+'">'+mmss(x)+"</span>"; }).join(" · ") + "</div>" : "") +
+      '<div class="acts"><button data-one="'+i+'">이 블록만</button>' +
+      (i < bs.length-1 ? '<button data-from="'+i+'">여기서부터 끝까지</button>' : "") + "</div></div>";
+  }).join("");
+  $("runBody").innerHTML = h;
+  wireSeg();
+  document.querySelectorAll("[data-one]").forEach(b => b.onclick = () => runBlock(+b.dataset.one, +b.dataset.one));
+  document.querySelectorAll("[data-from]").forEach(b => b.onclick = () => runBlock(+b.dataset.from, bs.length-1));
+  dock([{ label:"처음으로", sec:true, go:home }]);
+}
+
+/* ── 블록 말하기: 진행 ── */
+const R = { a:0, z:0, bi:0, ti:0, t0:0, off:0, bStart:0, run:false, timer:null, buzzed:false, splits:[], waitPt:false };
+const now = () => R.run ? (Date.now() - R.t0)/1000 + R.off : 0;
+
+function runBlock(a, z){
+  stopSpeak();
+  if(REC.url){ URL.revokeObjectURL(REC.url); REC.url = null; }
+  Object.assign(R, { a:a, z:z, bi:a, ti:0, t0:0, off:0, bStart:0, run:false, buzzed:false, splits:[], waitPt:false });
+  clearInterval(R.timer);
+  const bs = blocks();
+  $("runTitle").textContent = a === z ? CIRC[a]+" "+bs[a].name : CIRC[a]+" → "+CIRC[z]+" 이어서";
+  drawBlock();
+  dock([{ label:"목록", sec:true, go:stopBlock },
+        { label:"시작", go:startBlock }]);
+}
+function startBlock(){
+  R.run = true; R.t0 = Date.now();
+  R.timer = setInterval(tickBlock, 200);
+  if(opt.rec === "on") recStart().catch(e => alert(e.message || "녹음을 시작할 수 없습니다."));
+  step();
+}
+function tickBlock(){
+  const b = blocks()[R.bi], t = now() - R.bStart;
+  const big = $("bClock");
+  if(!big) return;
+  big.textContent = mmss(t);
+  big.className = "big " + (t > b.sec*1.1 ? "over" : (t > b.sec*0.9 ? "warn" : ""));
+  if(t >= b.sec && !R.buzzed){ R.buzzed = true; try{ navigator.vibrate && navigator.vibrate(250); }catch(e){} }
+  const tot = $("bTotal");
+  if(tot) tot.textContent = mmss(now());
+}
+function clockHTML(){
+  const bs = blocks(), b = bs[R.bi];
+  let cum = 0; for(let i = R.a; i <= R.bi; i++) cum += bs[i].sec;
+  return '<div class="clockbox"><div class="row1"><span class="big" id="bClock">'+mmss(now() - R.bStart)+"</span>" +
+    '<span class="tgt">목표 '+mmss(b.sec)+" ("+Math.round(b.sec*0.9)+"~"+Math.round(b.sec*1.1)+"초)</span></div>" +
+    '<div class="bn">'+CIRC[R.bi]+" "+esc(b.name) +
+    (R.a !== R.z ? ' · 누적 <span id="bTotal">'+mmss(now())+"</span> / 이 블록 끝 "+mmss(cum) : "") +
+    " · 시험 시계 ~"+esc(b.end)+"</div></div>";
+}
+function drawBlock(){
+  const b = blocks()[R.bi], v = opt.view;
+  let h = clockHTML();
+  h += '<p class="note" style="margin-top:0"><b>할 일</b> '+esc(b.todo)+"</p>";
+  if(v !== "all"){
+    const ks = (b.key||[]).concat((b.mustsay||[]).filter(m => !(b.key||[]).includes(m)));
+    if(ks.length) h += '<ul class="keys">' + ks.map(x =>
+      "<li>"+((b.mustsay||[]).includes(x) ? '<span class="ms">'+esc(x)+"</span>" : esc(x))+"</li>").join("") + "</ul>";
+  }
+  if(v !== "todo"){
+    h += '<div class="bh">대본</div>';
+    h += b.turns.map((t,i) => {
+      const dr = t.who === "dr", past = i < R.ti || !R.run, cur = R.run && i === R.ti;
+      const hide = v === "key" && dr && !(R.run && i < R.ti);
+      const ms = dr && (b.mustsay||[]).some(m => t.en.includes(m.split("?")[0]));
+      return '<div class="turn '+(dr ? "dr" : "pt")+(cur ? " now" : (R.run && i > R.ti ? " dim" : ""))+'" id="bt'+i+'">' +
+        '<div class="who">'+(dr ? "Dentist" : "Patient")+(ms ? " · must-say" : "")+"</div>" +
+        (hide ? '<div class="en hid">— 내 차례 —</div>' : '<div class="en">'+esc(t.en)+"</div>") + "</div>";
+    }).join("");
+  }
+  $("runBody").innerHTML = h;
+  const e = $("bt"+R.ti); if(R.run && e) e.scrollIntoView({ block:"center" });
+}
+function runDock(){
+  const b = blocks()[R.bi], t = b.turns[R.ti], free = opt.view === "todo";
+  const last = free || R.ti >= b.turns.length-1;
+  const btns = [{ label:"그만", sec:true, go:() => finishRun(true) }];
+  if(!free && t && t.who === "pt") btns.push({ label:"다시 듣기", sec:true, go:() => speak(t.en, null) });
+  btns.push({ label: last ? (R.bi < R.z ? "블록 끝 ▶" : "끝") : "다음 ▶",
+              off: !free && t && t.who === "pt" && R.waitPt, go: advance });
+  dock(btns);
+}
+function step(){
+  const b = blocks()[R.bi];
+  if(opt.view === "todo"){ drawBlock(); runDock(); return; }
+  const t = b.turns[R.ti];
+  if(!t){ blockDone(); return; }
+  drawBlock();
+  if(t.who === "pt"){
+    if(opt.pt === "time"){
+      R.off += wc(t.en) / P_WPS - 0.35;          // 아래 0.35초 대기를 빼 준다
+      R.ti++; setTimeout(step, 350); return;
+    }
+    R.waitPt = true; runDock();
+    speak(t.en, () => { if(!R.run || blocks()[R.bi] !== b || b.turns[R.ti] !== t) return;
+                        R.waitPt = false; R.ti++; step(); });
+    return;
+  }
+  runDock();
+}
+function advance(){
+  if(!R.run) return;
+  stopSpeak(); R.waitPt = false;
+  if(opt.view === "todo"){ blockDone(); return; }
+  R.ti++;
+  if(R.ti >= blocks()[R.bi].turns.length) blockDone(); else step();
+}
+function blockDone(){
+  const b = blocks()[R.bi], t = now();
+  R.splits.push({ i:R.bi, sec:t - R.bStart });
+  rec.addBlock(b.no, t - R.bStart);
+  if(R.bi < R.z){
+    R.bi++; R.ti = 0; R.bStart = t; R.buzzed = false;
+    try{ navigator.vibrate && navigator.vibrate([80,60,80]); }catch(e){}
+    step();
+  } else finishRun(false);
+}
+async function finishRun(early){
+  clearInterval(R.timer);
+  stopSpeak();
+  const total = now();
+  R.run = false;
+  if(REC.on) await recStop();
+  const bs = blocks();
+  let h = "";
+  if(!R.splits.length){
+    h = '<p class="lede">기록 없이 멈췄습니다.</p>';
+  } else {
+    h += '<table class="ans"><tr><th>블록</th><th>목표</th><th>걸린 시간</th><th>편차</th><th>판정</th></tr>';
+    let tg = 0;
+    h += R.splits.map(s => { const b = bs[s.i], j = judge(s.sec, b.sec); tg += b.sec;
+      return "<tr><td>"+CIRC[s.i]+" "+esc(b.name)+'</td><td class="n">'+mmss(b.sec)+'</td><td class="n">'+mmss(s.sec)+
+             '</td><td class="n">'+dev(s.sec, b.sec)+'</td><td class="'+j[0]+'">'+j[1]+"</td></tr>"; }).join("");
+    if(R.splits.length > 1){
+      const sum = R.splits.reduce((x,s) => x + s.sec, 0), j = judge(sum, tg);
+      h += '<tr><td><b>합계</b></td><td class="n">'+mmss(tg)+'</td><td class="n">'+mmss(sum)+'</td><td class="n">'+
+           dev(sum, tg)+'</td><td class="'+j[0]+'">'+j[1]+"</td></tr>";
+    }
+    h += "</table>";
+    if(early) h += '<p class="note">중간에 멈춘 블록은 기록하지 않았습니다.</p>';
+    if(opt.pt === "time") h += '<p class="note">환자 대사 시간 '+Math.round(R.off)+"초를 계산으로 더했습니다.</p>";
+    const ms = [];
+    R.splits.forEach(s => (bs[s.i].mustsay||[]).forEach(m => ms.push(m)));
+    if(ms.length){
+      h += '<div class="bh">꼭 말할 것 — 말했나요?</div>' + ms.map((m,i) =>
+        '<div class="slot" id="ms'+i+'"><div class="body">'+esc(m)+'</div><div class="mk">' +
+        '<button data-ms="'+i+'" data-v="1">말했음</button><button data-ms="'+i+'" data-v="0">놓침</button></div></div>').join("");
+    }
+  }
+  if(REC.url) h += '<div class="recbar"><button id="recPlay">내 목소리 듣기</button></div>';
+  $("runBody").innerHTML = h;
+  document.querySelectorAll("[data-ms]").forEach(b => b.onclick = () => {
+    const s = $("ms"+b.dataset.ms); s.classList.add(b.dataset.v === "1" ? "got" : "miss");
+    s.querySelector(".mk").remove();
+  });
+  if($("recPlay")) $("recPlay").onclick = recPlay;
+  dock([{ label:"목록", sec:true, go:() => { $("runTitle").textContent = "블록 말하기"; blockList(); } },
+        { label:"다시", go:() => runBlock(R.a, R.z) }]);
+  window.scrollTo(0,0);
+}
+function stopBlock(){
+  clearInterval(R.timer); R.run = false; stopSpeak();
+  $("runTitle").textContent = "블록 말하기";
+  blockList();
+}
+
+/* ── 3분 요약 (종이) ── */
+let SUMT = null;
+function runSummary(){
+  clearInterval(SUMT);
+  const hist = rec.sums().slice(-5).reverse();
+  let h = '<p class="lede">종이와 펜을 준비하세요. 시작하면 큐카드가 열리고 3분이 갑니다. ' +
+          "큐카드만 보고 <b>블록 | 시간 | 물어볼 것 · 말할 것</b>을 종이에 쓰세요. 끝나면 정답 표와 맞춰 봅니다.</p>";
+  if(hist.length) h += '<div class="bh">최근 기록</div><table class="ans"><tr><th>날짜</th><th>블록</th><th>시간</th><th>내용</th></tr>' +
+    hist.map(x => '<tr><td class="n">'+esc(x.at)+'</td><td class="n">'+x.b+"/"+x.n+'</td><td class="n">'+x.t+"/"+x.n+
+                  '</td><td class="n">'+x.c+"/"+x.n+"</td></tr>").join("") + "</table>";
+  $("runBody").innerHTML = h;
+  dock([{ label:"처음으로", sec:true, go:() => { clearInterval(SUMT); home(); } },
+        { label:"3분 시작", go:summaryRead }]);
+}
+function summaryRead(){
+  const total = S.kase.readSeconds || 180;
+  const t0 = Date.now();
+  $("runBody").innerHTML = '<div class="clockbox"><div class="row1"><span class="big" id="sClock">'+mmss(total)+
+    '</span><span class="tgt">읽기 · 쓰기 시간</span></div></div>' + cardHTML(S.kase);
+  dock([{ label:"다 썼어요 — 정답 보기", go:summaryAnswer }]);
+  SUMT = setInterval(() => {
+    const left = total - (Date.now() - t0)/1000, c = $("sClock");
+    if(!c){ clearInterval(SUMT); return; }
+    c.textContent = mmss(left);
+    c.className = "big " + (left <= 0 ? "over" : (left <= 30 ? "warn" : ""));
+    if(left <= 0){
+      clearInterval(SUMT);
+      try{ navigator.vibrate && navigator.vibrate([300,120,300]); }catch(e){}
+      c.textContent = "시간 끝";
+    }
+  }, 250);
+}
+function summaryAnswer(){
+  clearInterval(SUMT);
+  const bs = blocks(), mark = bs.map(() => ({ b:0, t:0, c:0 }));
+  let h = '<p class="lede">내 종이와 한 줄씩 맞춰 보세요. 블록 = 그 블록을 적었나 · 시간 = ±15초 안 · ' +
+          "내용 = 할 일과 꼭 말할 것을 대부분 적었나.</p>";
+  h += '<table class="ans"><tr><th>블록 · 시간</th><th>할 일 · 꼭 말할 것</th></tr>';
+  h += bs.map((b,i) =>
+    "<tr><td>"+CIRC[i]+" "+esc(b.name)+'<div class="n" style="margin-top:4px;color:var(--ink-soft)">'+
+    mmss(b.sec)+" · ~"+esc(b.end)+"</div></td><td>"+esc(b.todo) +
+    ((b.mustsay||[]).length ? '<ul class="keys" style="margin-top:6px">'+b.mustsay.map(m =>
+       '<li><span class="ms">'+esc(m)+"</span></li>").join("")+"</ul>" : "") +
+    '<div class="chk">' + [["b","블록"],["t","시간"],["c","내용"]].map(([k,l]) =>
+       '<button data-r="'+i+'" data-k="'+k+'">'+l+"</button>").join("") + "</div></td></tr>").join("");
+  h += "</table>";
+  const cb = S.kase.curveballs || [];
+  if(cb.length){
+    h += '<div class="bh">예상 curveball — 무엇이라고 답할까요?</div>' + cb.map((c,i) =>
+      '<div class="flip" data-f="'+i+'"><div class="q">'+esc(c.q)+'</div><div class="a veil">'+esc(c.a)+"</div></div>").join("");
+  }
+  h += '<p class="note" id="sScore"></p>';
+  $("runBody").innerHTML = h;
+  window.scrollTo(0,0);
+  const score = () => {
+    const s = k => mark.reduce((x,m) => x + m[k], 0);
+    $("sScore").textContent = "블록 "+s("b")+" · 시간 "+s("t")+" · 내용 "+s("c")+"  / "+bs.length;
+    return s;
+  };
+  document.querySelectorAll("[data-r]").forEach(b => b.onclick = () => {
+    const m = mark[+b.dataset.r], k = b.dataset.k;
+    m[k] = m[k] ? 0 : 1; b.classList.toggle("on", !!m[k]); score();
+  });
+  document.querySelectorAll(".flip").forEach(f => f.onclick = () => f.querySelector(".a").classList.remove("veil"));
+  score();
+  dock([{ label:"저장 안 함", sec:true, go:runSummary },
+        { label:"기록 저장", go:() => {
+            const s = score(), d = new Date();
+            rec.addSum({ at:(d.getMonth()+1)+"/"+d.getDate(), n:bs.length, b:s("b"), t:s("t"), c:s("c") });
+            runSummary(); } }]);
+}
+
+/* ── 블록 카드 ── */
+function runCards(){
+  const bs = blocks();
+  let h = '<p class="lede">블록 순서 · 시간 · 할 일 · 꼭 말할 것을 외웁니다. 대본은 눌러서 엽니다.</p>';
+  h += bs.map((b,i) =>
+    '<div class="blk"><div class="hd"><span class="nm">'+CIRC[i]+" "+esc(b.name)+"</span>" +
+    '<span class="tm">'+mmss(b.sec)+" · ~"+esc(b.end)+"</span></div>" +
+    '<div class="todo">'+esc(b.todo)+"</div>" +
+    ((b.key||[]).length || (b.mustsay||[]).length ? '<ul class="keys" style="margin-top:8px">' +
+      (b.key||[]).concat((b.mustsay||[]).filter(m => !(b.key||[]).includes(m))).map(x =>
+        "<li>"+((b.mustsay||[]).includes(x) ? '<span class="ms">'+esc(x)+"</span>" : esc(x))+"</li>").join("")+"</ul>" : "") +
+    '<div class="acts"><button data-sc="'+i+'">대본 보기</button></div><div id="sc'+i+'" class="hide" style="margin-top:12px">' +
+    b.turns.map(t => '<div class="turn '+(t.who === "dr" ? "dr" : "pt")+'"><div class="who">'+
+      (t.who === "dr" ? "Dentist" : "Patient")+'</div><div class="en">'+esc(t.en)+"</div></div>").join("") +
+    "</div></div>").join("");
+  const cb = S.kase.curveballs || [];
+  if(cb.length) h += '<div class="bh">curveball — 눌러서 답 보기</div>' + cb.map(c =>
+    '<div class="flip"><div class="q">'+esc(c.q)+'</div><div class="a veil">'+esc(c.a)+"</div></div>").join("");
+  h += '<p class="note"><span class="ms">노란 줄</span> = 케이스 노트 §6 must-say.</p>';
+  $("runBody").innerHTML = h;
+  document.querySelectorAll("[data-sc]").forEach(b => b.onclick = () => {
+    const e = $("sc"+b.dataset.sc), open = e.classList.toggle("hide");
+    b.textContent = open ? "대본 보기" : "대본 닫기";
+  });
+  document.querySelectorAll(".flip").forEach(f => f.onclick = () => f.querySelector(".a").classList.remove("veil"));
+  dock([{ label:"처음으로", sec:true, go:home }]);
+}
+
 /* ── 초기화 ── */
 (function(){
   if(!canSpeak) $("compat").innerHTML =
@@ -747,9 +1160,9 @@ function runCues(){
   try{
     const ids = store.idx();
     const withMod = ids.filter(m => m.moduleName).length;
-    $("diag").textContent = "v9 · 저장된 케이스 " + ids.length +
+    $("diag").textContent = "v11 · 공부 · 블록 연습 · 저장된 케이스 " + ids.length +
       "개 · 세트 붙은 것 " + withMod + "개";
-  }catch(e){ $("diag").textContent = "v9 · 목록 확인 실패"; }
+  }catch(e){ $("diag").textContent = "v11 · 공부 · 목록 확인 실패"; }
   try{ loadCases(); pickCase(); }
   catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
 
