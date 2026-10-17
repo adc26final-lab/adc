@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="light only">
+<meta name="theme-color" content="#E9EDEC">
+<title>OSCE 확인</title>
+<style>
+  :root{
+    color-scheme: light only; -webkit-text-size-adjust:100%;
+    --ink:#12212B; --ink-soft:#4A5C66; --paper:#E9EDEC; --card:#FFFFFF;
+    --teal:#0F6E6E; --teal-pale:#DCEAE8; --amber:#C46A16; --amber-pale:#FFF4E5;
+    --red:#A8322A; --red-pale:#F6E4E2; --rule:#C9D2D2;
+    --serif: Georgia,"Iowan Old Style","Times New Roman",serif;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--paper)}
+  body{color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.5;overscroll-behavior-y:none}
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  select,textarea,input{font-family:inherit;font-size:16px;color:inherit}
+  .wrap{max-width:640px;margin:0 auto;padding:20px 16px;padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+  .stage{display:none} .stage.on{display:block}
+  h1{font-size:22px;margin:0 0 4px;font-weight:600;letter-spacing:-.01em}
+  .sub{margin:0 0 16px;color:var(--ink-soft);font-size:14px}
+  .ver{font-size:12px;color:var(--ink-soft);margin:0 0 14px}
+  label{display:block;font-size:13px;color:var(--ink-soft);margin:14px 0 5px}
+  select,textarea{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+  textarea{min-height:110px;font-size:14px}
+  input[type=file]{width:100%;padding:10px;border:1px solid var(--rule);border-radius:3px;background:var(--card);font-size:14px}
+  .note{font-size:13px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5}
+  .hide{display:none!important}
+  .stat{font-size:13px;color:var(--ink-soft);margin:8px 0 0;font-variant-numeric:tabular-nums}
+
+  /* 홈 버튼 4개 */
+  .big4{display:grid;gap:9px;margin-top:18px}
+  .big{display:flex;gap:14px;align-items:center;text-align:left;background:var(--card);
+       border:1px solid var(--rule);border-radius:4px;padding:16px}
+  .big .n{font-family:var(--serif);font-size:26px;width:30px;flex:none;color:var(--teal);line-height:1}
+  .big .t{font-weight:600;font-size:16px}
+  .big .d{font-size:13px;color:var(--ink-soft);margin-top:2px}
+  .big:disabled{opacity:.4}
+  details{margin-top:26px;background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:4px 14px}
+  details summary{padding:10px 0;font-size:14px;color:var(--ink-soft);cursor:pointer}
+  details[open]{padding-bottom:14px}
+
+  .btn{display:block;width:100%;padding:14px;border-radius:3px;background:var(--ink);color:#fff;font-weight:600;text-align:center;margin-top:14px}
+  .btn.ghost{background:var(--card);color:var(--teal);border:1px solid var(--rule);font-weight:500}
+
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;padding:11px 4px;border:1px solid var(--rule);border-radius:3px;font-size:14px;background:var(--card);color:var(--ink-soft)}
+  .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  /* 카드 */
+  .meta{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-soft);margin-bottom:8px;font-variant-numeric:tabular-nums}
+  .kind{font-size:11.5px;font-weight:700;letter-spacing:.05em;color:var(--teal)}
+  .fc{background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--ink);padding:20px 18px;min-height:180px}
+  .fc .q{font-size:18px;line-height:1.5;font-weight:500;white-space:pre-line}
+  .fc .a{margin-top:16px;padding-top:14px;border-top:1px solid var(--rule)}
+  .fc .a ul{margin:0;padding-left:18px} .fc .a li{margin-bottom:6px;font-size:15.5px}
+  .fc .a .en{font-family:var(--serif);font-size:18px;line-height:1.5}
+  .fc .say{margin-top:12px;padding:8px 12px;border:1px solid var(--rule);border-radius:3px;font-size:13.5px;color:var(--teal);background:var(--paper)}
+
+  /* 표 */
+  table.t{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--card)}
+  table.t th,table.t td{border:1px solid var(--rule);padding:7px 8px;vertical-align:top;text-align:left}
+  table.t th{background:var(--teal-pale);font-weight:600;font-size:12.5px}
+  .num{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .ms{background:var(--amber-pale);border-left:3px solid var(--amber);padding:1px 4px}
+  .ok{color:var(--teal);font-weight:600} .bad{color:var(--red);font-weight:600} .warn{color:var(--amber);font-weight:600}
+  .ox{display:flex;gap:6px;margin-top:6px}
+  .ox button{flex:1;padding:7px 2px;border:1px solid var(--rule);border-radius:3px;font-size:13px;background:var(--paper);color:var(--ink-soft)}
+  .ox button.o{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .ox button.x{background:var(--red);color:#fff;border-color:var(--red)}
+  .sh{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--teal);margin:20px 0 8px}
+
+  /* 큐카드 */
+  .cue{background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--ink);padding:18px;font-family:var(--serif);font-size:15px;line-height:1.5}
+  .cue .ci{font-family:var(--sans);font-size:11px;letter-spacing:.09em;color:var(--ink-soft);margin-bottom:12px}
+  .cue .who{font-size:16.5px;font-weight:600;margin:0 0 6px}
+  .cue .sec{font-family:var(--sans);font-size:10.5px;font-weight:700;letter-spacing:.05em;color:var(--teal);margin:12px 0 4px}
+  .cue ul,.cue ol{margin:0;padding-left:18px} .cue li{margin-bottom:4px}
+  .cue .task{font-family:var(--sans);font-size:10.5px;font-weight:700;letter-spacing:.05em;margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--rule)}
+
+  /* 시계 */
+  .clock{position:sticky;top:0;z-index:40;background:var(--paper);padding:10px 0;border-bottom:1px solid var(--rule);margin-bottom:14px}
+  .clock .r{display:flex;align-items:baseline;gap:12px}
+  .clock .c{font-family:var(--serif);font-size:44px;font-variant-numeric:tabular-nums;line-height:1}
+  .clock .c.warn{color:var(--amber)} .clock .c.over{color:var(--red)}
+  .clock .g{font-size:14px;color:var(--ink-soft)}
+  .clock .b{font-size:14px;margin-top:6px;font-weight:600}
+  .clock .td{font-size:13.5px;color:var(--ink-soft);margin-top:2px}
+
+  /* 블록 목록 */
+  .row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:13px 14px;margin-bottom:7px}
+  .row .nm{flex:1;font-size:15px;font-weight:500}
+  .row .tm{font-size:13px;color:var(--ink-soft);font-variant-numeric:tabular-nums;text-align:right}
+
+  /* 대본 줄 */
+  .turn{border-left:2px solid var(--rule);padding:4px 0 4px 12px;margin-bottom:12px}
+  .turn.dr{border-left-color:var(--teal)}
+  .turn .who{font-size:11.5px;font-weight:600;color:var(--ink-soft)}
+  .turn.dr .who{color:var(--teal)}
+  .turn .en{font-size:16px}
+  .turn .en.hid{font-style:italic;color:var(--ink-soft);font-size:14px}
+  .turn.now{background:var(--card);margin-left:-8px;padding-left:18px;border-left-width:3px;border-radius:0 3px 3px 0}
+  .turn.dim{opacity:.35}
+  .heard{margin-top:8px;padding:8px 10px;background:var(--paper);border-radius:3px;font-size:14.5px;min-height:1.6em}
+  .heard:empty::before{content:"듣는 중…";color:var(--ink-soft);font-size:13px}
+  .heard .i{color:var(--ink-soft)}
+  .said{font-size:13px;color:var(--ink-soft);margin-top:3px}
+
+  .slot{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:11px 13px;margin-bottom:7px}
+  .slot.o{background:var(--teal-pale);border-color:var(--teal)}
+  .slot.x{background:var(--red-pale);border-color:var(--red)}
+  .slot .p{font-size:12.5px;color:var(--ink-soft);margin-top:3px}
+
+  .dock{position:fixed;left:0;right:0;bottom:0;background:var(--paper);border-top:1px solid var(--rule);
+        padding:10px 16px calc(10px + env(safe-area-inset-bottom));z-index:45}
+  .dock .in{max-width:640px;margin:0 auto;display:flex;gap:8px}
+  .dock button{flex:1;padding:14px 6px;border-radius:3px;background:var(--ink);color:#fff;font-weight:600;font-size:15px}
+  .dock button.s{background:var(--card);color:var(--teal);border:1px solid var(--rule);font-weight:500}
+  .dock button.o{background:var(--teal)} .dock button.x{background:var(--red)}
+  .dock button:disabled{opacity:.4}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section id="home" class="stage on">
+  <h1>OSCE 확인</h1>
+  <p class="ver">v1 · 확인용 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <select id="caseSel"></select>
+  <p class="stat" id="stat"></p>
+  <div class="big4" id="big4">
+    <button class="big" data-go="detail"><span class="n">1</span><span><div class="t">디테일 확인</div><div class="d">진단 · 숨은 문제 · must-say · curveball 카드</div></span></button>
+    <button class="big" data-go="summary"><span class="n">2</span><span><div class="t">3분 요약</div><div class="d">큐카드 보고 종이에 블록표 → 정답과 맞추기</div></span></button>
+    <button class="big" data-go="blocks"><span class="n">3</span><span><div class="t">블록 말하기</div><div class="d">블록마다 정해진 시간 안에 말하기</div></span></button>
+    <button class="big" data-go="play"><span class="n">4</span><span><div class="t">10분 롤플레이</div><div class="d">AI 환자 · 채점</div></span></button>
+  </div>
+  <p class="note" id="noBlocks"></p>
+
+  <details id="setup">
+    <summary>케이스 불러오기 · 설정</summary>
+    <label for="pick">케이스 JSON 파일 (nazia_all.json)</label>
+    <input type="file" id="pick" accept=".json,application/json" multiple>
+    <p class="note">대본이 바뀌면 새 JSON을 다시 넣으세요. 같은 케이스는 새 것으로 바뀝니다. 기록은 남습니다.</p>
+    <label for="rate">환자 말 속도</label>
+    <select id="rate">
+      <option value="0.95">느리게</option><option value="1.1">보통</option>
+      <option value="1.25">빠르게</option><option value="1.4">아주 빠르게</option>
+    </select>
+    <label for="srl">음성인식 언어</label>
+    <select id="srl">
+      <option value="en-AU">영어 (호주)</option><option value="en-GB">영어 (영국)</option>
+      <option value="en-US">영어 (미국)</option>
+    </select>
+    <p class="note" id="sttNote"></p>
+  </details>
+</section>
+
+<section id="run" class="stage">
+  <h1 id="runT"></h1>
+  <p class="sub" id="runS"></p>
+  <div id="body"></div>
+</section>
+
+</div>
+<div class="dock hide" id="dock"><div class="in" id="dockIn"></div></div>
+
+<script>
+"use strict";
+/* ══════════ 공통 ══════════ */
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const mmss = s => { s = Math.max(0, Math.round(s)); return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); };
+const CIRC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮";
+const KIND = { dx:"진단", hidden:"숨은 문제", exam:"검사 계획", mgmt:"관리 순서", mustsay:"must-say", curveball:"curveball", dont:"하면 안 되는 것" };
+const SIZES = [15, 20, 25, 30];
+const ls = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  raw(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : v; }catch(e){ return d; } },
+  put(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+};
+/* 케이스는 롤플레이 앱(index.html)과 같은 곳(osce.)에 둔다 — 한 번 넣으면 둘 다 쓴다 */
+const store = {
+  idx(){ const v = ls.get("osce.index", []); return v.map(x => typeof x === "string" ? { id:x, title:x } : x); },
+  load(id){ return ls.get("osce.c." + id, null); },
+  add(list){
+    const ids = store.idx(); let n = 0;
+    for(const c of list){
+      try{ localStorage.setItem("osce.c." + c.id, JSON.stringify(c)); }
+      catch(e){ ls.set("osce.index", ids); throw new Error("저장 공간이 찼습니다. " + n + "개까지 들어갔습니다."); }
+      const m = { id:c.id, title:c.title||c.id, code:c.code||"", module:c.module||99, moduleName:c.moduleName||"" };
+      const at = ids.findIndex(x => x.id === c.id);
+      if(at < 0) ids.push(m); else ids[at] = m;
+      n++;
+    }
+    ls.set("osce.index", ids);
+    return n;
+  }
+};
+const rec = {   // 기록은 케이스별로
+  detail(){ return ls.get("chk.d." + K.id, {}); },
+  setDetail(v){ ls.set("chk.d." + K.id, v); },
+  sums(){ return ls.get("chk.s." + K.id, []); },
+  addSum(x){ const r = rec.sums(); r.push(x); ls.set("chk.s." + K.id, r.slice(-30)); },
+  blocks(){ return ls.get("chk.b." + K.id, {}); },
+  addBlock(no, sec){ const r = rec.blocks(); (r[no] = r[no] || []).push(Math.round(sec)); r[no] = r[no].slice(-10); ls.set("chk.b." + K.id, r); }
+};
+let K = null, METAS = [];
+const blocks = () => (K && K.blocks) || [];
+const today = () => { const d = new Date(); return (d.getMonth()+1) + "/" + d.getDate(); };
+
+function dock(btns){
+  $("dock").classList.toggle("hide", !btns.length);
+  $("dockIn").innerHTML = btns.map((b,i) => '<button class="' + (b.cls||"") + '" data-i="' + i + '"' + (b.off ? " disabled" : "") + ">" + esc(b.label) + "</button>").join("");
+  $("dockIn").querySelectorAll("button").forEach(e => e.onclick = () => btns[+e.dataset.i].go());
+}
+function show(title, sub){
+  document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
+  $("run").classList.add("on");
+  $("runT").textContent = title; $("runS").textContent = sub || "";
+  window.scrollTo(0,0);
+}
+function home(){
+  stopAll();
+  document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
+  $("home").classList.add("on");
+  dock([]); drawHome(); window.scrollTo(0,0);
+}
+function seg(name, items, cur){
+  return '<div class="seg" data-seg="' + name + '">' + items.map(([v,l]) =>
+    '<button data-v="' + v + '" class="' + (String(v) === String(cur) ? "on" : "") + '">' + esc(l) + "</button>").join("") + "</div>";
+}
+function wireSeg(on){
+  document.querySelectorAll(".seg").forEach(g => g.querySelectorAll("button").forEach(b => b.onclick = () => {
+    g.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    on(g.dataset.seg, b.dataset.v);
+  }));
+}
+
+/* ══════════ 음성 (환자) ══════════ */
+const canSpeak = "speechSynthesis" in window;
+let VOICE = null;
+const rate = () => parseFloat(ls.raw("chk.rate", "1.1")) || 1.1;
+function pickVoice(){
+  if(!canSpeak) return;
+  const vs = speechSynthesis.getVoices() || [];
+  VOICE = vs.find(v => (v.lang||"").replace("_","-").startsWith("en-AU")) ||
+          vs.find(v => (v.lang||"").replace("_","-").startsWith("en-GB")) ||
+          vs.find(v => (v.lang||"").startsWith("en")) || null;
+}
+if(canSpeak){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function chunks(text){
+  const out = []; let rest = String(text).trim();
+  while(rest.length > 170){
+    let cut = -1;
+    for(const m of [". ", "? ", "! ", "; ", ", "]){ const at = rest.lastIndexOf(m, 170); if(at > cut) cut = at + m.length; }
+    if(cut <= 0) cut = rest.lastIndexOf(" ", 170);
+    if(cut <= 0) cut = 170;
+    out.push(rest.slice(0, cut).trim()); rest = rest.slice(cut).trim();
+  }
+  if(rest) out.push(rest);
+  return out;
+}
+let keep = null, sayId = 0;
+function speak(text, onEnd){
+  const id = ++sayId;
+  const done = () => { if(id === sayId){ clearInterval(keep); onEnd && onEnd(); } };
+  if(!canSpeak || !text){ setTimeout(done, 300); return; }
+  speechSynthesis.cancel();
+  clearInterval(keep);
+  keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
+  const parts = chunks(text); let i = 0;
+  const next = () => {
+    if(id !== sayId) return;
+    if(i >= parts.length){ done(); return; }
+    const u = new SpeechSynthesisUtterance(parts[i++]);
+    u.lang = "en-AU"; if(VOICE) u.voice = VOICE; u.rate = rate();
+    let moved = false; const go = () => { if(!moved){ moved = true; next(); } };
+    u.onend = go; u.onerror = go;
+    speechSynthesis.speak(u);
+    setTimeout(() => { if(!speechSynthesis.speaking) go(); }, Math.max(3000, parts[i-1].length / 12 * 1000 / rate() + 2500));
+  };
+  next();
+}
+function stopSpeak(){ sayId++; clearInterval(keep); if(canSpeak) speechSynthesis.cancel(); }
+
+/* ══════════ 음성인식 (내 차례에만) ══════════ */
+const SRC = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const STT = { r:null, last:null, want:false, fin:"", inter:"", restarts:0, onChange:null };
+function sttStart(){
+  if(!SRC) return;
+  STT.want = true;
+  if(STT.r) return;
+  let r; try{ r = new SRC(); }catch(e){ return; }
+  r.lang = ls.raw("osce.srlang", "en-AU"); r.interimResults = true; r.continuous = true;
+  r.pre = STT.fin; STT.r = r; STT.last = r;
+  r.onresult = e => {
+    if(STT.last !== r) return;
+    STT.restarts = 0;
+    let fin = "", inter = "";
+    for(let i = 0; i < e.results.length; i++){
+      const t = e.results[i][0].transcript;
+      if(e.results[i].isFinal) fin += " " + t; else inter += " " + t;
+    }
+    STT.fin = (r.pre + " " + fin).replace(/\s+/g, " ").trim();
+    STT.inter = inter.trim();
+    STT.onChange && STT.onChange();
+  };
+  r.onerror = e => {
+    const k = e && e.error;
+    if(k === "not-allowed" || k === "service-not-allowed"){
+      STT.want = false;
+      alert("마이크 권한이 거부됐습니다. 브라우저 설정에서 허용하세요. 그동안은 '다음' 버튼으로 넘기면 됩니다.");
+    }
+  };
+  r.onend = () => {
+    if(STT.r === r) STT.r = null;
+    if(STT.last === r) STT.inter = "";
+    if(STT.want && STT.last === r && STT.restarts++ < 40) setTimeout(() => { if(STT.want && !STT.r) sttStart(); }, 150);
+  };
+  try{ r.start(); }catch(e){ STT.r = null; }
+}
+function sttStop(){ STT.want = false; const r = STT.r; STT.r = null; if(r){ try{ r.stop(); }catch(e){} } }
+function sttReset(){ sttStop(); STT.fin = ""; STT.inter = ""; STT.last = null; }
+/* 핵심 단어(3글자 이상 · 흔한 말 제외)가 얼마나 들렸나 */
+const STOPW = new Set("the and you your are was were for that this with have has had not but can will just what when how who why our out all any its it's i'm don't from they them their there then than into about would could should may might also very".split(" "));
+const words = s => String(s||"").toLowerCase().replace(/[’']/g,"'").match(/[a-z0-9']+/g) || [];
+function cover(target, heard){
+  const want = [...new Set(words(target).filter(w => w.length >= 3 && !STOPW.has(w)))];
+  if(!want.length) return 1;
+  const got = new Set(words(heard));
+  return want.filter(w => got.has(w) || got.has(w.replace(/s$/,"")) || got.has(w + "s")).length / want.length;
+}
+
+function stopAll(){
+  stopSpeak(); sttStop(); clearInterval(B.timer); clearTimeout(B.autoT); clearInterval(SUMT);
+  B.run = false; STT.onChange = null;
+}
+
+/* ══════════ 홈 ══════════ */
+function loadCases(){
+  METAS = store.idx().slice().sort((a,b) => {
+    const k = m => (m.code||"").match(/\d+/g) || [99,99];
+    const x = k(a), y = k(b); return (+x[0] - +y[0]) || (+x[1] - +y[1]);
+  });
+  $("caseSel").innerHTML = METAS.length
+    ? METAS.map((m,i) => '<option value="' + i + '">' + esc((m.code ? m.code + "  " : "") + (m.title||m.id)) + "</option>").join("")
+    : '<option value="">— 아래 "케이스 불러오기"에서 JSON을 넣으세요 —</option>';
+  const last = ls.raw("chk.case", "");
+  const at = METAS.findIndex(m => m.id === last);
+  if(at >= 0) $("caseSel").value = String(at);
+  pickCase();
+}
+function pickCase(){
+  const v = $("caseSel").value;
+  K = v === "" ? null : store.load(METAS[+v].id);
+  if(K) ls.put("chk.case", K.id);
+  drawHome();
+}
+function drawHome(){
+  const has = !!K, hasB = blocks().length > 0, hasD = !!(K && K.deck && K.deck.length);
+  const btn = n => document.querySelector('[data-go="' + n + '"]');
+  btn("detail").disabled = !hasD;
+  btn("summary").disabled = !hasB;
+  btn("blocks").disabled = !hasB;
+  btn("play").disabled = !has;
+  $("noBlocks").textContent = has && !hasB ? "이 케이스는 아직 블록 대본이 없어 2 · 3번이 꺼져 있습니다." :
+                              (has && !hasD ? "이 케이스에는 디테일 카드가 없습니다. 새 JSON을 넣으세요." : "");
+  if(!has){ $("stat").textContent = ""; $("setup").open = true; return; }
+  const d = rec.detail(), dn = Object.keys(d).length, dok = Object.values(d).filter(x => x === 1).length;
+  const s = rec.sums().slice(-1)[0];
+  const b = rec.blocks(), bs = blocks();
+  const bok = bs.filter(x => { const t = (b[x.no]||[]).slice(-1)[0]; return t != null && Math.abs(t - x.sec) <= x.sec*0.1; }).length;
+  const parts = [];
+  if(hasD) parts.push("디테일 ○" + dok + " / " + dn + "장 봄");
+  if(hasB) parts.push("요약 " + (s ? s.got + "/" + s.n : "—"));
+  if(hasB) parts.push("블록 ○" + bok + " / " + bs.length);
+  $("stat").textContent = parts.join(" · ");
+}
+
+/* ══════════ ① 디테일 확인 ══════════ */
+const D = { list:[], i:0, open:false, res:{} };
+function detailStart(){
+  const deck = K.deck || [], r = rec.detail();
+  const size = +ls.raw("chk.size", "20");
+  const wrong = deck.filter(c => r[c.id] === 0);
+  let h = '<label>카드 수</label>' + seg("size", SIZES.map(n => [n, n + "장"]), size);
+  h += '<p class="note">이 케이스 카드는 모두 ' + deck.length + "장입니다." +
+       (deck.length < 30 ? " 그보다 많이 고르면 전부 나옵니다." : "") + "</p>";
+  h += '<div class="sh">카드 종류 (적은 수를 고르면 진단 · 숨은 문제 · 검사 · 관리 · 금지 5장 + must-say · curveball · 숨은 문제 낱개를 번갈아 채웁니다)</div>';
+  h += '<table class="t"><tr><th>종류</th><th>카드</th><th>지난번 ○</th></tr>' +
+    Object.keys(KIND).map(k => { const cs = deck.filter(c => c.kind === k); if(!cs.length) return "";
+      return "<tr><td>" + KIND[k] + '</td><td class="num">' + cs.length + '</td><td class="num">' + cs.filter(c => r[c.id] === 1).length + "</td></tr>"; }).join("") + "</table>";
+  $("body").innerHTML = h;
+  show("① 디테일 확인", "질문을 보고 머릿속으로 답한 뒤 열어서 맞춰 보세요.");
+  wireSeg((n,v) => { ls.put("chk.size", v); });
+  dock([{ label:"처음으로", cls:"s", go:home },
+        { label:"✕만 다시 (" + wrong.length + ")", cls:"s", off:!wrong.length, go:() => detailRun(wrong.sort((a,b) => a.ord - b.ord)) },
+        { label:"시작", go:() => { const n = +ls.raw("chk.size", "20");
+            detailRun(deck.filter(c => c.rank < n).sort((a,b) => a.ord - b.ord)); } }]);
+}
+function detailRun(list){
+  Object.assign(D, { list:list, i:0, open:false, res:{} });
+  show("① 디테일 확인", "");
+  detailDraw();
+}
+function detailDraw(){
+  const c = D.list[D.i];
+  const one = c.a.length === 1;
+  const enAns = c.kind === "mustsay" || c.kind === "curveball";
+  let h = '<div class="meta"><span class="kind">' + esc(KIND[c.kind]) + "</span><span>" + (D.i+1) + " / " + D.list.length + "</span></div>";
+  h += '<div class="fc"><div class="q">' + esc(c.q) + "</div>";
+  if(D.open){
+    h += '<div class="a">' + (one ? '<div class="' + (enAns ? "en" : "") + '">' + esc(c.a[0]) + "</div>"
+                                : "<ul>" + c.a.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>");
+    if(enAns) h += '<button class="say" id="say">▶ 듣기</button>';
+    h += "</div>";
+  }
+  h += "</div>";
+  $("body").innerHTML = h;
+  if($("say")) $("say").onclick = () => speak(c.a[0].replace(/\([^)]*\)/g, " ").replace(/→/g, ". "));
+  dock(D.open
+    ? [{ label:"✕ 몰랐음", cls:"x", go:() => detailMark(0) }, { label:"○ 알았음", cls:"o", go:() => detailMark(1) }]
+    : [{ label:"그만", cls:"s", go:detailEnd }, { label:"답 보기", go:() => { D.open = true; detailDraw(); } }]);
+}
+function detailMark(v){
+  stopSpeak();
+  const c = D.list[D.i]; D.res[c.id] = v;
+  const r = rec.detail(); r[c.id] = v; rec.setDetail(r);
+  if(D.i >= D.list.length - 1){ detailEnd(); return; }
+  D.i++; D.open = false; detailDraw(); window.scrollTo(0,0);
+}
+function detailEnd(){
+  stopSpeak();
+  const seen = D.list.filter(c => D.res[c.id] != null), ok = seen.filter(c => D.res[c.id] === 1);
+  const miss = seen.filter(c => D.res[c.id] === 0);
+  let h = '<p class="sub" style="font-size:16px;color:var(--ink)">○ <b>' + ok.length + "</b> / " + seen.length + "장</p>";
+  if(miss.length) h += '<div class="sh">몰랐던 카드</div>' + miss.map(c =>
+    '<div class="slot x"><div class="p">' + esc(KIND[c.kind]) + "</div>" + esc(c.q.split("\n").join(" · ")) + "</div>").join("");
+  $("body").innerHTML = h;
+  show("① 디테일 확인 — 결과", "");
+  dock([{ label:"처음으로", cls:"s", go:home },
+        { label:"✕만 다시", off:!miss.length, go:() => detailRun(miss) }]);
+}
+
+/* ══════════ ② 3분 요약 ══════════ */
+let SUMT = null;
+function cueHTML(){
+  const c = K.card;
+  let h = '<div class="cue"><div class="ci">CANDIDATE INSTRUCTIONS</div>';
+  if(c){
+    h += '<p class="who">' + esc(c.patient) + "</p>";
+    (c.sections||[]).forEach(s => { if(!(s.items||[]).length) return;
+      h += '<div class="sec">' + esc(s.heading.toUpperCase()) + "</div><ul>" + s.items.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>"; });
+    h += '<div class="task">TASK</div><ol>' + (c.tasks||[]).map(x => "<li>" + esc(x) + "</li>").join("") + "</ol>";
+  } else h += "<p>" + esc((K.cueCard && K.cueCard.setting) || "") + "</p>";
+  return h + "</div>";
+}
+function summaryStart(){
+  const hist = rec.sums().slice(-5).reverse();
+  let h = '<p class="sub" style="color:var(--ink)">종이와 펜을 준비하세요. 시작하면 큐카드와 3분 타이머가 나옵니다. ' +
+          "<b>블록 · 시간 · 할 일</b>을 종이에 쓰세요.</p>";
+  if(hist.length) h += '<div class="sh">최근 기록</div><table class="t"><tr><th>날짜</th><th>맞은 블록</th></tr>' +
+    hist.map(x => '<tr><td class="num">' + esc(x.at) + '</td><td class="num">' + x.got + " / " + x.n + "</td></tr>").join("") + "</table>";
+  $("body").innerHTML = h;
+  show("② 3분 요약", "");
+  dock([{ label:"처음으로", cls:"s", go:home }, { label:"3분 시작", go:summaryRead }]);
+}
+function summaryRead(){
+  const total = K.readSeconds || 180, t0 = Date.now();
+  $("body").innerHTML = '<div class="clock"><div class="r"><span class="c" id="sc">' + mmss(total) + '</span><span class="g">읽고 쓰는 시간</span></div></div>' + cueHTML();
+  show("② 3분 요약", "");
+  dock([{ label:"다 썼어요 — 정답 보기", go:summaryAnswer }]);
+  SUMT = setInterval(() => {
+    const left = total - (Date.now() - t0)/1000, c = $("sc");
+    if(!c){ clearInterval(SUMT); return; }
+    c.textContent = left > 0 ? mmss(left) : "시간 끝";
+    c.className = "c " + (left <= 0 ? "over" : (left <= 30 ? "warn" : ""));
+    if(left <= 0){ clearInterval(SUMT); try{ navigator.vibrate && navigator.vibrate([300,120,300]); }catch(e){} }
+  }, 250);
+}
+function summaryAnswer(){
+  clearInterval(SUMT);
+  const bs = blocks(), mk = bs.map(() => null);
+  let h = '<p class="sub">내 종이와 한 줄씩 맞춰 보세요. 블록 이름 · 시간 · 할 일이 대부분 맞으면 ○.</p>';
+  h += '<table class="t"><tr><th>블록 · 시간</th><th>할 일 · 꼭 말할 것</th></tr>' + bs.map((b,i) =>
+    "<tr><td>" + CIRC[i] + " " + esc(b.name) + '<div class="num" style="color:var(--ink-soft);margin-top:3px">' + mmss(b.sec) + " · ~" + esc(b.end) + "</div>" +
+    '<div class="ox"><button data-r="' + i + '" data-v="1">○</button><button data-r="' + i + '" data-v="0">✕</button></div></td>' +
+    "<td>" + esc(b.todo) + ((b.mustsay||[]).length ? '<div style="margin-top:6px">' + b.mustsay.map(m => '<div class="ms" style="margin-bottom:3px">' + esc(m) + "</div>").join("") + "</div>" : "") + "</td></tr>").join("") + "</table>";
+  $("body").innerHTML = h;
+  show("② 3분 요약 — 정답", "");
+  const draw = () => {
+    const got = mk.filter(x => x === 1).length, done = mk.filter(x => x != null).length;
+    dock([{ label:"저장 안 함", cls:"s", go:summaryStart },
+          { label:"저장 · " + got + " / " + bs.length + (done < bs.length ? " (" + (bs.length - done) + "개 남음)" : ""),
+            go:() => { rec.addSum({ at:today(), got:got, n:bs.length }); summaryStart(); } }]);
+  };
+  document.querySelectorAll("[data-r]").forEach(b => b.onclick = () => {
+    const i = +b.dataset.r, v = +b.dataset.v;
+    mk[i] = v;
+    b.parentNode.querySelectorAll("button").forEach(x => x.className = "");
+    b.className = v ? "o" : "x";
+    draw();
+  });
+  draw();
+}
+
+/* ══════════ ③ 블록 말하기 ══════════ */
+const P_WPS = 150/60;
+const B = { a:0, z:0, bi:0, ti:0, t0:0, bStart:0, run:false, timer:null, buzz:false, splits:[], wait:false,
+            turnBase:0, blockBase:0, autoT:null, said:[], peek:false };
+const bnow = () => B.run ? (Date.now() - B.t0)/1000 : 0;
+const judge = (sec, tgt) => { const d = (sec - tgt)/tgt; return Math.abs(d) <= 0.1 ? ["ok","○"] : (d > 0 ? ["bad","길다"] : ["warn","짧다"]); };
+function blocksStart(){
+  const bs = blocks(), r = rec.blocks();
+  let h = '<button class="btn" id="all" style="margin-top:0">전체 이어서 (' + bs.length + "블록 · 10:00)</button>";
+  h += '<div class="sh">블록 하나만</div>' + bs.map((b,i) => {
+    const t = (r[b.no]||[]).slice(-1)[0], j = t != null ? judge(t, b.sec) : null;
+    return '<button class="row" data-b="' + i + '"><span class="nm">' + CIRC[i] + " " + esc(b.name) + "</span>" +
+      '<span class="tm">' + mmss(b.sec) + (j ? '<br><span class="' + j[0] + '">지난번 ' + mmss(t) + "</span>" : "") + "</span></button>";
+  }).join("");
+  if(!SRC) h += '<p class="note">이 브라우저는 음성인식이 안 됩니다. 내 차례가 끝나면 "다음"을 누르세요.</p>';
+  $("body").innerHTML = h;
+  show("③ 블록 말하기", "내 대사는 가려져 있습니다. 환자 말이 끝나면 말하세요. 맞게 말하면 저절로 넘어갑니다.");
+  $("all").onclick = () => blockRun(0, bs.length - 1);
+  document.querySelectorAll("[data-b]").forEach(e => e.onclick = () => blockRun(+e.dataset.b, +e.dataset.b));
+  dock([{ label:"처음으로", cls:"s", go:home }]);
+}
+function blockRun(a, z){
+  stopAll(); sttReset();
+  Object.assign(B, { a:a, z:z, bi:a, ti:0, t0:0, bStart:0, run:false, buzz:false, splits:[], wait:false,
+                     turnBase:0, blockBase:0, autoT:null, said:[], peek:false });
+  STT.onChange = () => { heardDraw(); autoCheck(); };
+  show(a === z ? CIRC[a] + " " + blocks()[a].name : "전체 이어서", "");
+  blockDraw();
+  dock([{ label:"목록", cls:"s", go:() => { stopAll(); blocksStart(); } }, { label:"시작", go:blockGo }]);
+}
+function blockGo(){
+  B.run = true; B.t0 = Date.now();
+  B.timer = setInterval(tick, 200);
+  step();
+}
+function tick(){
+  const b = blocks()[B.bi], t = bnow() - B.bStart, c = $("bc");
+  if(!c) return;
+  c.textContent = mmss(t);
+  c.className = "c " + (t > b.sec*1.1 ? "over" : (t > b.sec*0.9 ? "warn" : ""));
+  if(t >= b.sec && !B.buzz){ B.buzz = true; try{ navigator.vibrate && navigator.vibrate(250); }catch(e){} }
+  const tt = $("bt"); if(tt) tt.textContent = mmss(bnow());
+}
+function blockDraw(){
+  const bs = blocks(), b = bs[B.bi];
+  let cum = 0; for(let i = B.a; i <= B.bi; i++) cum += bs[i].sec;
+  let h = '<div class="clock"><div class="r"><span class="c" id="bc">' + mmss(bnow() - B.bStart) + "</span>" +
+          '<span class="g">목표 ' + mmss(b.sec) + "</span></div>" +
+          '<div class="b">' + CIRC[B.bi] + " " + esc(b.name) +
+          (B.a !== B.z ? ' <span class="g" style="font-weight:400">· 전체 <span id="bt">' + mmss(bnow()) + "</span> / " + mmss(cum) + "</span>" : "") + "</div>" +
+          '<div class="td">' + esc(b.todo) + "</div></div>";
+  h += b.turns.map((t,i) => {
+    const dr = t.who === "dr", cur = B.run && i === B.ti, past = B.run && i < B.ti;
+    const show = !dr || past || B.peek;
+    return '<div class="turn ' + (dr ? "dr" : "pt") + (cur ? " now" : (B.run && i > B.ti ? " dim" : "")) + '" id="tn' + i + '">' +
+      '<div class="who">' + (dr ? "나" : "환자") + "</div>" +
+      (show ? '<div class="en">' + esc(t.en) + "</div>" : '<div class="en hid">— 내 차례 —</div>') +
+      (cur && dr && SRC ? '<div class="heard" id="heard"></div>' : "") +
+      (dr && past && B.said[i] != null ? '<div class="said">들린 말: ' + esc(B.said[i] || "—") + "</div>" : "") + "</div>";
+  }).join("");
+  $("body").innerHTML = h;
+  heardDraw();
+  const e = $("tn" + B.ti); if(B.run && e) e.scrollIntoView({ block:"center" });
+}
+function heardDraw(){
+  const e = $("heard"); if(!e) return;
+  e.innerHTML = esc(STT.fin.slice(B.turnBase).trim()) + (STT.inter ? ' <span class="i">' + esc(STT.inter) + "</span>" : "");
+}
+function autoCheck(){
+  if(!B.run || B.autoT) return;
+  const t = blocks()[B.bi].turns[B.ti];
+  if(!t || t.who !== "dr") return;
+  if(cover(t.en, STT.fin.slice(B.turnBase) + " " + STT.inter) >= 0.75)
+    B.autoT = setTimeout(() => { B.autoT = null; if(B.run && blocks()[B.bi].turns[B.ti] === t) next(); }, 500);
+}
+function runDock(){
+  const b = blocks()[B.bi], t = b.turns[B.ti], last = B.ti >= b.turns.length - 1;
+  dock([{ label:"그만", cls:"s", go:() => blockEnd(true) },
+        { label: B.peek ? "대본 가리기" : "대본 보기", cls:"s", go:() => { B.peek = !B.peek; blockDraw(); runDock(); } },
+        { label: last ? (B.bi < B.z ? "블록 끝 ▶" : "끝") : "다음 ▶", off: t && t.who === "pt" && B.wait, go:next }]);
+}
+function step(){
+  const b = blocks()[B.bi], t = b.turns[B.ti];
+  if(!t){ blockDone(); return; }
+  if(t.who === "dr") B.turnBase = STT.fin.length;
+  blockDraw();
+  if(t.who === "pt"){
+    B.wait = true; runDock(); sttStop();      // 환자 음성을 내 말로 받아쓰지 않게
+    speak(t.en, () => { if(!B.run || blocks()[B.bi].turns[B.ti] !== t) return; B.wait = false; B.ti++; step(); });
+    return;
+  }
+  runDock(); sttStart();
+}
+function next(){
+  if(!B.run) return;
+  stopSpeak(); B.wait = false; clearTimeout(B.autoT); B.autoT = null;
+  const t = blocks()[B.bi].turns[B.ti];
+  if(t && t.who === "dr" && SRC) B.said[B.ti] = STT.fin.slice(B.turnBase).trim();
+  B.ti++;
+  if(B.ti >= blocks()[B.bi].turns.length) blockDone(); else step();
+}
+function blockDone(){
+  const b = blocks()[B.bi], t = bnow();
+  B.splits.push({ i:B.bi, sec:t - B.bStart, said: SRC ? STT.fin.slice(B.blockBase).trim() : null });
+  rec.addBlock(b.no, t - B.bStart);
+  if(B.bi < B.z){
+    B.bi++; B.ti = 0; B.bStart = t; B.buzz = false; B.said = []; B.peek = false;
+    B.blockBase = B.turnBase = STT.fin.length;
+    try{ navigator.vibrate && navigator.vibrate([80,60,80]); }catch(e){}
+    step();
+  } else blockEnd(false);
+}
+function blockEnd(early){
+  const a = B.a, z = B.z, splits = B.splits;
+  stopAll();
+  const bs = blocks();
+  let h = "";
+  if(!splits.length) h = '<p class="sub">기록 없이 멈췄습니다.</p>';
+  else {
+    let tg = 0;
+    h += '<table class="t"><tr><th>블록</th><th>목표</th><th>걸린</th><th>판정</th></tr>' + splits.map(s => {
+      const b = bs[s.i], j = judge(s.sec, b.sec); tg += b.sec;
+      return "<tr><td>" + CIRC[s.i] + " " + esc(b.name) + '</td><td class="num">' + mmss(b.sec) + '</td><td class="num">' + mmss(s.sec) + '</td><td class="' + j[0] + '">' + j[1] + "</td></tr>"; }).join("");
+    if(splits.length > 1){ const sum = splits.reduce((x,s) => x + s.sec, 0), j = judge(sum, tg);
+      h += '<tr><td><b>합계</b></td><td class="num">' + mmss(tg) + '</td><td class="num">' + mmss(sum) + '</td><td class="' + j[0] + '">' + j[1] + "</td></tr>"; }
+    h += "</table>";
+    if(early) h += '<p class="note">중간에 멈춘 블록은 기록하지 않았습니다.</p>';
+    const ms = [];
+    splits.forEach(s => (bs[s.i].mustsay||[]).forEach(m => ms.push({ m:m, said:s.said })));
+    if(ms.length){
+      h += '<div class="sh">꼭 말할 것' + (SRC ? " — 들린 말로 판정 (틀리면 눌러서 고치세요)" : " — 말했나요?") + "</div>" + ms.map((x,i) => {
+        const c = x.said != null ? cover(x.m, x.said) : null;
+        return '<div class="slot' + (c == null ? "" : (c >= 0.7 ? " o" : " x")) + '" id="m' + i + '">' + esc(x.m) +
+          (c != null ? '<div class="p">핵심 단어 ' + Math.round(c*100) + "% 들림</div>" : "") +
+          '<div class="ox"><button data-m="' + i + '" data-v="1">○ 말함</button><button data-m="' + i + '" data-v="0">✕ 놓침</button></div></div>';
+      }).join("");
+    }
+    if(splits.some(s => s.said)) h += '<details style="margin-top:14px"><summary>들린 말 전체</summary>' +
+      splits.map(s => '<p class="note"><b>' + CIRC[s.i] + " " + esc(bs[s.i].name) + "</b> " + esc(s.said || "—") + "</p>").join("") + "</details>";
+  }
+  $("body").innerHTML = h;
+  show("③ 블록 말하기 — 결과", "");
+  document.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
+    const s = $("m" + b.dataset.m), ok = b.dataset.v === "1";
+    s.classList.toggle("o", ok); s.classList.toggle("x", !ok);
+  });
+  dock([{ label:"목록", cls:"s", go:blocksStart }, { label:"다시", go:() => blockRun(a, z) }]);
+}
+
+/* ══════════ 초기화 ══════════ */
+(function(){
+  try{ loadCases(); }catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
+  $("caseSel").onchange = pickCase;
+  document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    if(!K) return;
+    const g = b.dataset.go;
+    if(g === "play"){ location.href = "index.html"; return; }
+    if(canSpeak){ try{ speechSynthesis.speak(new SpeechSynthesisUtterance("")); }catch(e){} }   // iOS: 첫 탭에서 음성을 깨운다
+    if(g === "detail") detailStart(); else if(g === "summary") summaryStart(); else blocksStart();
+  });
+  $("rate").value = String(rate());
+  $("rate").onchange = () => ls.put("chk.rate", $("rate").value);
+  $("srl").value = ls.raw("osce.srlang", "en-AU");
+  $("srl").onchange = () => ls.put("osce.srlang", $("srl").value);
+  $("sttNote").textContent = SRC ? "롤플레이 앱과 같은 설정을 씁니다." : "이 브라우저는 음성인식을 지원하지 않습니다 (크롬 · 사파리 최신 버전 권장).";
+  $("pick").onchange = async ev => {
+    const files = Array.from(ev.target.files || []); if(!files.length) return;
+    const add = [], bad = [];
+    for(const f of files){
+      try{ const v = JSON.parse(await f.text()); (Array.isArray(v) ? v : [v]).forEach(c => c && c.id ? add.push(c) : bad.push(f.name)); }
+      catch(e){ bad.push(f.name); }
+    }
+    ev.target.value = "";
+    if(!add.length){ alert("읽을 수 있는 케이스가 없습니다."); return; }
+    try{ const n = store.add(add); loadCases(); $("setup").open = false;
+         alert(n + "개 케이스를 넣었습니다." + (bad.length ? " 읽지 못한 파일: " + bad.join(", ") : "")); }
+    catch(e){ loadCases(); alert(e.message); }
+  };
+})();
+</script>
+</body>
+</html>
