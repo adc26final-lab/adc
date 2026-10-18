@@ -111,6 +111,10 @@
   .heard:empty::before{content:"듣는 중…";color:var(--ink-soft);font-size:13px}
   .heard .i{color:var(--ink-soft)}
   .said{font-size:13px;color:var(--ink-soft);margin-top:3px}
+  .recbox{margin-top:8px;padding:8px 10px;background:var(--paper);border-radius:3px;font-size:13.5px;color:var(--red);display:flex;align-items:center;gap:10px}
+  .lvl{flex:1;height:6px;background:var(--rule);border-radius:3px;overflow:hidden}
+  .lvl i{display:block;height:100%;width:0;background:var(--teal);transition:width .1s}
+  input[type=password]{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
 
   .slot{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:11px 13px;margin-bottom:7px}
   .slot.o{background:var(--teal-pale);border-color:var(--teal)}
@@ -132,7 +136,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v1 · 확인용 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v2 · 확인용 · ElevenLabs 음성인식 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -153,7 +157,17 @@
       <option value="0.95">느리게</option><option value="1.1">보통</option>
       <option value="1.25">빠르게</option><option value="1.4">아주 빠르게</option>
     </select>
-    <label for="srl">음성인식 언어</label>
+    <label for="eng">음성인식 엔진 (블록 말하기)</label>
+    <select id="eng">
+      <option value="browser">브라우저 기본 — 무료 · 실시간 · 맞게 말하면 자동 넘김</option>
+      <option value="scribe">ElevenLabs Scribe — 정확 · 크레딧 사용 · 말이 끝나면 자동 넘김</option>
+    </select>
+    <div id="elBox" class="hide">
+      <label for="elKey">ElevenLabs API 키</label>
+      <input type="password" id="elKey" placeholder="ElevenLabs → Settings → API Keys" autocomplete="off">
+      <p class="note">이 폰에만 저장됩니다. 롤플레이 앱과 같은 키를 씁니다. 내 차례마다 녹음해서 보내고, 결과는 받는 대로 '들린 말'에 채워집니다.</p>
+    </div>
+    <label for="srl">음성인식 언어 (브라우저 기본일 때)</label>
     <select id="srl">
       <option value="en-AU">영어 (호주)</option><option value="en-GB">영어 (영국)</option>
       <option value="en-US">영어 (미국)</option>
@@ -339,8 +353,107 @@ function cover(target, heard){
   return want.filter(w => got.has(w) || got.has(w.replace(/s$/,"")) || got.has(w + "s")).length / want.length;
 }
 
+/* ══════════ ElevenLabs Scribe (내 차례마다 녹음 → 전송) ══════════ */
+const eng = () => ls.raw("osce.stt", "browser");          // 롤플레이 앱과 같은 설정
+const elKey = () => ls.raw("osce.elkey", "");
+const useScribe = () => eng() === "scribe" && !!elKey();
+const useBrowser = () => !useScribe() && !!SRC;
+const listening = () => useScribe() || useBrowser();
+const SCRIBE_MODELS = ["scribe_v2", "scribe_v1"];         // 앞것이 거부되면 뒷것으로
+const TK = { stream:null, ac:null, an:null, mr:null, chunks:[], on:false, key:"", vadT:null,
+             spoke:0, quiet:0, t0:0, floor:0, nf:0, pending:[], warned:false };
+async function micOpen(){
+  if(TK.stream && TK.stream.active) return;
+  TK.stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+  try{
+    TK.ac = TK.ac || new (window.AudioContext || window.webkitAudioContext)();
+    if(TK.ac.state === "suspended") await TK.ac.resume();
+    TK.an = TK.ac.createAnalyser(); TK.an.fftSize = 1024;
+    TK.ac.createMediaStreamSource(TK.stream).connect(TK.an);
+  }catch(e){ TK.an = null; }                               // 소리 크기를 못 재면 자동 넘김 없이 '다음'으로
+}
+function micClose(){
+  clearInterval(TK.vadT);
+  if(TK.stream){ try{ TK.stream.getTracks().forEach(t => t.stop()); }catch(e){} }
+  TK.stream = null; TK.an = null; TK.on = false;
+}
+function recMime(){
+  for(const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"])
+    if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  return "";
+}
+function rms(){
+  if(!TK.an) return 0;
+  const a = new Uint8Array(TK.an.fftSize); TK.an.getByteTimeDomainData(a);
+  let x = 0; for(const v of a){ const d = (v - 128)/128; x += d*d; }
+  return Math.sqrt(x / a.length);
+}
+function takeStart(key){
+  if(!TK.stream || !window.MediaRecorder) return;
+  try{ const mt = recMime(); TK.mr = mt ? new MediaRecorder(TK.stream, { mimeType:mt }) : new MediaRecorder(TK.stream); }
+  catch(e){ return; }
+  TK.chunks = [];
+  TK.mr.ondataavailable = e => { if(e.data && e.data.size) TK.chunks.push(e.data); };
+  TK.mr.start();
+  Object.assign(TK, { on:true, key:key, spoke:0, quiet:0, t0:Date.now(), floor:0, nf:0 });
+  clearInterval(TK.vadT);
+  TK.vadT = setInterval(() => {                            // 말소리 감지: 말하다가 1.6초 조용하면 끝난 것으로 본다
+    if(!TK.on || TK.key !== key) return;
+    const v = rms();
+    if(Date.now() - TK.t0 < 400){ TK.floor += v; TK.nf++; return; }   // 처음 0.4초 = 주변 소음
+    const thr = Math.max(0.015, (TK.nf ? TK.floor / TK.nf : 0) * 2.5);
+    const bar = $("lvl"); if(bar) bar.style.width = Math.min(100, v / thr * 50) + "%";
+    if(v > thr){ TK.spoke += 100; TK.quiet = 0; }
+    else if(TK.spoke >= 300) TK.quiet += 100;
+    if(TK.spoke >= 400 && TK.quiet >= 1600 && B.run && turnKey() === key) next();
+  }, 100);
+}
+function takeStop(){
+  return new Promise(res => {
+    clearInterval(TK.vadT);
+    if(!TK.mr || TK.mr.state === "inactive"){ TK.on = false; return res(null); }
+    const mr = TK.mr, chunks = TK.chunks;
+    let done = false;
+    const fin = () => { if(done) return; done = true; TK.on = false;
+      res(chunks.length ? new Blob(chunks, { type: chunks[0].type || recMime() || "audio/webm" }) : null); };
+    mr.onstop = fin; setTimeout(fin, 2000);
+    try{ mr.stop(); }catch(e){ fin(); }
+  });
+}
+async function scribeText(blob){
+  let last = "";
+  for(const model of SCRIBE_MODELS){
+    const fd = new FormData();
+    fd.append("file", blob, "turn." + ((blob.type || "").includes("mp4") ? "mp4" : "webm"));
+    fd.append("model_id", model); fd.append("language_code", "en");
+    let res;
+    const ac = new AbortController(), bell = setTimeout(() => ac.abort(), 30000);
+    try{ res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method:"POST", headers:{ "xi-api-key":elKey() }, body:fd, signal:ac.signal }); }
+    catch(e){ clearTimeout(bell); throw new Error(e && e.name === "AbortError" ? "받아쓰기가 너무 오래 걸려 취소했습니다." : "받아쓰기 서버에 닿지 못했습니다."); }
+    clearTimeout(bell);
+    if(res.ok){ const j = await res.json(); return (j && j.text ? j.text : "").trim(); }
+    if(res.status === 401) throw new Error("ElevenLabs 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("ElevenLabs 크레딧이 부족합니다.");
+    try{ const j = await res.json(); last = (j.detail && (j.detail.message || j.detail)) || ""; }catch(e){}
+    if(res.status !== 400 && res.status !== 404 && res.status !== 422) throw new Error("받아쓰기 오류 " + res.status + (last ? " — " + last : ""));
+  }
+  throw new Error("받아쓰기 오류" + (last ? " — " + last : ""));
+}
+function takeSend(){
+  if(!TK.on) return;
+  const key = TK.key, long = Date.now() - TK.t0 > 700;    // 말소리 감지는 자동 넘김에만 쓴다 — 받아쓰기는 늘 보낸다
+  B.saidMap[key] = null;                                   // null = 받아쓰는 중
+  const p = takeStop()
+    .then(blob => (!blob || blob.size < 1200 || !long) ? "" : scribeText(blob))
+    .then(t => { B.saidMap[key] = t; saidDraw(key); })
+    .catch(e => { B.saidMap[key] = "(받아쓰기 실패)"; saidDraw(key);
+                  if(!TK.warned){ TK.warned = true; alert(e.message + "\n이번 연습은 '다음' 버튼으로 계속하면 됩니다."); } });
+  TK.pending.push(p);
+}
+
 function stopAll(){
   stopSpeak(); sttStop(); clearInterval(B.timer); clearTimeout(B.autoT); clearInterval(SUMT);
+  if(TK.on){ clearInterval(TK.vadT); try{ TK.mr.stop(); }catch(e){} TK.on = false; }   // 보내지 않고 버린다
   B.run = false; STT.onChange = null;
 }
 
@@ -515,7 +628,8 @@ function summaryAnswer(){
 /* ══════════ ③ 블록 말하기 ══════════ */
 const P_WPS = 150/60;
 const B = { a:0, z:0, bi:0, ti:0, t0:0, bStart:0, run:false, timer:null, buzz:false, splits:[], wait:false,
-            turnBase:0, blockBase:0, autoT:null, said:[], peek:false };
+            turnBase:0, autoT:null, saidMap:{}, peek:false };
+const turnKey = () => B.bi + ":" + B.ti;
 const bnow = () => B.run ? (Date.now() - B.t0)/1000 : 0;
 const judge = (sec, tgt) => { const d = (sec - tgt)/tgt; return Math.abs(d) <= 0.1 ? ["ok","○"] : (d > 0 ? ["bad","길다"] : ["warn","짧다"]); };
 function blocksStart(){
@@ -526,9 +640,11 @@ function blocksStart(){
     return '<button class="row" data-b="' + i + '"><span class="nm">' + CIRC[i] + " " + esc(b.name) + "</span>" +
       '<span class="tm">' + mmss(b.sec) + (j ? '<br><span class="' + j[0] + '">지난번 ' + mmss(t) + "</span>" : "") + "</span></button>";
   }).join("");
-  if(!SRC) h += '<p class="note">이 브라우저는 음성인식이 안 됩니다. 내 차례가 끝나면 "다음"을 누르세요.</p>';
+  if(eng() === "scribe" && !elKey()) h += '<p class="note">ElevenLabs Scribe가 골라져 있지만 키가 없어 브라우저 음성인식을 씁니다. 홈 맨 아래 설정에서 키를 넣으세요.</p>';
+  else if(!listening()) h += '<p class="note">이 브라우저는 음성인식이 안 됩니다. 내 차례가 끝나면 "다음"을 누르세요.</p>';
   $("body").innerHTML = h;
-  show("③ 블록 말하기", "내 대사는 가려져 있습니다. 환자 말이 끝나면 말하세요. 맞게 말하면 저절로 넘어갑니다.");
+  show("③ 블록 말하기", "내 대사는 가려져 있습니다. 환자 말이 끝나면 말하세요. " +
+       (useScribe() ? "말을 마치고 잠깐 멈추면 저절로 넘어갑니다 (ElevenLabs Scribe)." : "맞게 말하면 저절로 넘어갑니다."));
   $("all").onclick = () => blockRun(0, bs.length - 1);
   document.querySelectorAll("[data-b]").forEach(e => e.onclick = () => blockRun(+e.dataset.b, +e.dataset.b));
   dock([{ label:"처음으로", cls:"s", go:home }]);
@@ -536,13 +652,18 @@ function blocksStart(){
 function blockRun(a, z){
   stopAll(); sttReset();
   Object.assign(B, { a:a, z:z, bi:a, ti:0, t0:0, bStart:0, run:false, buzz:false, splits:[], wait:false,
-                     turnBase:0, blockBase:0, autoT:null, said:[], peek:false });
+                     turnBase:0, autoT:null, saidMap:{}, peek:false });
+  TK.pending = []; TK.warned = false;
   STT.onChange = () => { heardDraw(); autoCheck(); };
   show(a === z ? CIRC[a] + " " + blocks()[a].name : "전체 이어서", "");
   blockDraw();
   dock([{ label:"목록", cls:"s", go:() => { stopAll(); blocksStart(); } }, { label:"시작", go:blockGo }]);
 }
-function blockGo(){
+async function blockGo(){
+  if(useScribe()){
+    try{ await micOpen(); }
+    catch(e){ alert("마이크를 쓸 수 없습니다. 권한을 확인하세요. 이번에는 '다음' 버튼으로 진행합니다."); }
+  }
   B.run = true; B.t0 = Date.now();
   B.timer = setInterval(tick, 200);
   step();
@@ -569,19 +690,28 @@ function blockDraw(){
     return '<div class="turn ' + (dr ? "dr" : "pt") + (cur ? " now" : (B.run && i > B.ti ? " dim" : "")) + '" id="tn' + i + '">' +
       '<div class="who">' + (dr ? "나" : "환자") + "</div>" +
       (show ? '<div class="en">' + esc(t.en) + "</div>" : '<div class="en hid">— 내 차례 —</div>') +
-      (cur && dr && SRC ? '<div class="heard" id="heard"></div>' : "") +
-      (dr && past && B.said[i] != null ? '<div class="said">들린 말: ' + esc(B.said[i] || "—") + "</div>" : "") + "</div>";
+      (cur && dr && useBrowser() ? '<div class="heard" id="heard"></div>' : "") +
+      (cur && dr && useScribe() && TK.stream ? '<div class="recbox">● 녹음 중<span class="lvl"><i id="lvl"></i></span></div>' : "") +
+      (dr && past && (B.bi + ":" + i) in B.saidMap ? '<div class="said" id="sd' + B.bi + "_" + i + '">' + saidText(B.bi + ":" + i) + "</div>" : "") + "</div>";
   }).join("");
   $("body").innerHTML = h;
   heardDraw();
   const e = $("tn" + B.ti); if(B.run && e) e.scrollIntoView({ block:"center" });
+}
+function saidText(key){
+  const v = B.saidMap[key];
+  return "들린 말: " + (v == null ? "받아쓰는 중…" : esc(v || "—"));
+}
+function saidDraw(key){
+  const e = $("sd" + key.replace(":", "_"));
+  if(e && +key.split(":")[0] === B.bi) e.innerHTML = saidText(key);
 }
 function heardDraw(){
   const e = $("heard"); if(!e) return;
   e.innerHTML = esc(STT.fin.slice(B.turnBase).trim()) + (STT.inter ? ' <span class="i">' + esc(STT.inter) + "</span>" : "");
 }
 function autoCheck(){
-  if(!B.run || B.autoT) return;
+  if(!B.run || B.autoT || !useBrowser()) return;
   const t = blocks()[B.bi].turns[B.ti];
   if(!t || t.who !== "dr") return;
   if(cover(t.en, STT.fin.slice(B.turnBase) + " " + STT.inter) >= 0.75)
@@ -603,31 +733,44 @@ function step(){
     speak(t.en, () => { if(!B.run || blocks()[B.bi].turns[B.ti] !== t) return; B.wait = false; B.ti++; step(); });
     return;
   }
-  runDock(); sttStart();
+  runDock();
+  if(useScribe()) takeStart(turnKey()); else if(useBrowser()) sttStart();
 }
 function next(){
   if(!B.run) return;
   stopSpeak(); B.wait = false; clearTimeout(B.autoT); B.autoT = null;
   const t = blocks()[B.bi].turns[B.ti];
-  if(t && t.who === "dr" && SRC) B.said[B.ti] = STT.fin.slice(B.turnBase).trim();
+  if(t && t.who === "dr"){
+    if(useScribe()) takeSend();
+    else if(useBrowser()) B.saidMap[turnKey()] = STT.fin.slice(B.turnBase).trim();
+  }
   B.ti++;
   if(B.ti >= blocks()[B.bi].turns.length) blockDone(); else step();
 }
 function blockDone(){
   const b = blocks()[B.bi], t = bnow();
-  B.splits.push({ i:B.bi, sec:t - B.bStart, said: SRC ? STT.fin.slice(B.blockBase).trim() : null });
+  B.splits.push({ i:B.bi, sec:t - B.bStart });
   rec.addBlock(b.no, t - B.bStart);
   if(B.bi < B.z){
-    B.bi++; B.ti = 0; B.bStart = t; B.buzz = false; B.said = []; B.peek = false;
-    B.blockBase = B.turnBase = STT.fin.length;
+    B.bi++; B.ti = 0; B.bStart = t; B.buzz = false; B.peek = false;
     try{ navigator.vibrate && navigator.vibrate([80,60,80]); }catch(e){}
     step();
   } else blockEnd(false);
 }
-function blockEnd(early){
+async function blockEnd(early){
   const a = B.a, z = B.z, splits = B.splits;
   stopAll();
   const bs = blocks();
+  if(TK.pending.length){                                   // Scribe 결과를 다 받은 뒤 판정한다
+    $("body").innerHTML = '<p class="sub">받아쓰기 결과를 기다리는 중…</p>'; dock([]);
+    await Promise.all(TK.pending);
+  }
+  micClose();
+  const heardAny = Object.keys(B.saidMap).length > 0;
+  splits.forEach(s => {
+    s.said = heardAny ? Object.keys(B.saidMap).filter(k => +k.split(":")[0] === s.i)
+      .sort((x,y) => +x.split(":")[1] - +y.split(":")[1]).map(k => B.saidMap[k] || "").join(" ").trim() : null;
+  });
   let h = "";
   if(!splits.length) h = '<p class="sub">기록 없이 멈췄습니다.</p>';
   else {
@@ -642,7 +785,7 @@ function blockEnd(early){
     const ms = [];
     splits.forEach(s => (bs[s.i].mustsay||[]).forEach(m => ms.push({ m:m, said:s.said })));
     if(ms.length){
-      h += '<div class="sh">꼭 말할 것' + (SRC ? " — 들린 말로 판정 (틀리면 눌러서 고치세요)" : " — 말했나요?") + "</div>" + ms.map((x,i) => {
+ h += '<div class="sh">꼭 말할 것' + (heardAny ? " — 들린 말로 판정 (틀리면 눌러서 고치세요)" : " — 말했나요?") + "</div>" + ms.map((x,i) => {
         const c = x.said != null ? cover(x.m, x.said) : null;
         return '<div class="slot' + (c == null ? "" : (c >= 0.7 ? " o" : " x")) + '" id="m' + i + '">' + esc(x.m) +
           (c != null ? '<div class="p">핵심 단어 ' + Math.round(c*100) + "% 들림</div>" : "") +
@@ -674,6 +817,12 @@ function blockEnd(early){
   });
   $("rate").value = String(rate());
   $("rate").onchange = () => ls.put("chk.rate", $("rate").value);
+  $("eng").value = eng();
+  $("elKey").value = elKey();
+  const elToggle = () => $("elBox").classList.toggle("hide", $("eng").value !== "scribe");
+  elToggle();
+  $("eng").onchange = () => { ls.put("osce.stt", $("eng").value); elToggle(); };
+  $("elKey").onchange = () => ls.put("osce.elkey", $("elKey").value.trim());
   $("srl").value = ls.raw("osce.srlang", "en-AU");
   $("srl").onchange = () => ls.put("osce.srlang", $("srl").value);
   $("sttNote").textContent = SRC ? "롤플레이 앱과 같은 설정을 씁니다." : "이 브라우저는 음성인식을 지원하지 않습니다 (크롬 · 사파리 최신 버전 권장).";
