@@ -136,7 +136,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v2 · 확인용 · ElevenLabs 음성인식 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v3 · 확인용 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -152,6 +152,9 @@
     <label for="pick">케이스 JSON 파일 (nazia_all.json)</label>
     <input type="file" id="pick" accept=".json,application/json" multiple>
     <p class="note">대본이 바뀌면 새 JSON을 다시 넣으세요. 같은 케이스는 새 것으로 바뀝니다. 기록은 남습니다.</p>
+    <p class="note" id="stored"></p>
+    <button class="btn ghost" id="wipe">저장된 케이스 모두 지우기</button>
+    <p class="note">케이스 데이터만 지웁니다. 연습 기록 · API 키 · 설정은 남습니다. 롤플레이 앱에서도 같이 지워집니다.</p>
     <label for="rate">환자 말 속도</label>
     <select id="rate">
       <option value="0.95">느리게</option><option value="1.1">보통</option>
@@ -204,6 +207,10 @@ const ls = {
 const store = {
   idx(){ const v = ls.get("osce.index", []); return v.map(x => typeof x === "string" ? { id:x, title:x } : x); },
   load(id){ return ls.get("osce.c." + id, null); },
+  wipe(){
+    for(const m of store.idx()){ try{ localStorage.removeItem("osce.c." + m.id); }catch(e){} }
+    try{ localStorage.removeItem("osce.index"); localStorage.removeItem("osce.packs"); }catch(e){}
+  },
   add(list){
     const ids = store.idx(); let n = 0;
     for(const c of list){
@@ -471,9 +478,15 @@ function loadCases(){
   if(at >= 0) $("caseSel").value = String(at);
   pickCase();
 }
+function drawStored(){
+  const ms = store.idx(), full = ms.filter(m => { const c = store.load(m.id); return c && c.deck && c.blocks; }).length;
+  $("stored").textContent = "저장된 케이스 " + ms.length + "개" + (ms.length ? " · 새 데이터(카드 · 블록 있음) " + full + "개" : "") +
+    (ms.length && full < ms.length ? " — 예전 데이터가 섞여 있습니다. 지우고 새 JSON을 넣으세요." : "");
+}
 function pickCase(){
   const v = $("caseSel").value;
   K = v === "" ? null : store.load(METAS[+v].id);
+  drawStored();
   if(K) ls.put("chk.case", K.id);
   drawHome();
 }
@@ -487,6 +500,10 @@ function drawHome(){
   $("noBlocks").textContent = has && !hasB ? "이 케이스는 아직 블록 대본이 없어 2 · 3번이 꺼져 있습니다." :
                               (has && !hasD ? "이 케이스에는 디테일 카드가 없습니다. 새 JSON을 넣으세요." : "");
   if(!has){ $("stat").textContent = ""; $("setup").open = true; return; }
+  if(!hasD && !hasB){                                      // 예전 데이터: 지우고 새 JSON을 넣도록 설정을 열어 둔다
+    $("noBlocks").textContent = "예전 케이스 데이터입니다. 아래에서 '저장된 케이스 모두 지우기' 후 새 nazia_all.json을 넣으세요.";
+    $("setup").open = true;
+  }
   const d = rec.detail(), dn = Object.keys(d).length, dok = Object.values(d).filter(x => x === 1).length;
   const s = rec.sums().slice(-1)[0];
   const b = rec.blocks(), bs = blocks();
@@ -826,6 +843,13 @@ async function blockEnd(early){
   $("srl").value = ls.raw("osce.srlang", "en-AU");
   $("srl").onchange = () => ls.put("osce.srlang", $("srl").value);
   $("sttNote").textContent = SRC ? "롤플레이 앱과 같은 설정을 씁니다." : "이 브라우저는 음성인식을 지원하지 않습니다 (크롬 · 사파리 최신 버전 권장).";
+  $("wipe").onclick = () => {
+    const n = store.idx().length;
+    if(!n){ alert("저장된 케이스가 없습니다."); return; }
+    if(!confirm("저장된 케이스 " + n + "개를 모두 지울까요? 연습 기록과 API 키는 남습니다.")) return;
+    store.wipe(); ls.put("chk.case", ""); loadCases(); $("setup").open = true;
+    alert("지웠습니다. 이제 새 nazia_all.json을 넣으세요.");
+  };
   $("pick").onchange = async ev => {
     const files = Array.from(ev.target.files || []); if(!files.length) return;
     const add = [], bad = [];
