@@ -216,7 +216,7 @@ const store = {
     for(const c of list){
       try{ localStorage.setItem("osce.c." + c.id, JSON.stringify(c)); }
       catch(e){ ls.set("osce.index", ids); throw new Error("저장 공간이 찼습니다. " + n + "개까지 들어갔습니다."); }
-      const m = { id:c.id, title:c.title||c.id, code:c.code||"", module:c.module||99, moduleName:c.moduleName||"" };
+      const m = { id:c.id, title:c.title||c.id, code:c.code||"", module:c.module||99, moduleName:c.moduleName||"", cat:c.cat||"", order:c.order||0 };
       const at = ids.findIndex(x => x.id === c.id);
       if(at < 0) ids.push(m); else ids[at] = m;
       n++;
@@ -466,12 +466,20 @@ function stopAll(){
 
 /* ══════════ 홈 ══════════ */
 function loadCases(){
-  METAS = store.idx().slice().sort((a,b) => {
+  METAS = store.idx().slice().sort((a,b) => {   // 분류 순서(order)가 있으면 그것, 없으면 Day 번호
+    if(a.order || b.order) return (a.order||999) - (b.order||999);
     const k = m => (m.code||"").match(/\d+/g) || [99,99];
     const x = k(a), y = k(b); return (+x[0] - +y[0]) || (+x[1] - +y[1]);
   });
-  $("caseSel").innerHTML = METAS.length
-    ? METAS.map((m,i) => '<option value="' + i + '">' + esc((m.code ? m.code + "  " : "") + (m.title||m.id)) + "</option>").join("")
+  const opt = (m,i) => '<option value="' + i + '">' + esc((m.cat ? m.cat + " · " : "") + (m.code ? m.code + "  " : "") + (m.title||m.id)) + "</option>";
+  let html = "", grp = null;   // 분류(moduleName)가 바뀔 때마다 묶음 제목
+  METAS.forEach((m,i) => {
+    const g = m.moduleName || "";
+    if(g !== grp){ if(grp !== null && grp !== "") html += "</optgroup>"; if(g) html += '<optgroup label="' + esc(g) + '">'; grp = g; }
+    html += opt(m,i);
+  });
+  if(grp) html += "</optgroup>";
+  $("caseSel").innerHTML = METAS.length ? html
     : '<option value="">— 아래 "케이스 불러오기"에서 JSON을 넣으세요 —</option>';
   const last = ls.raw("chk.case", "");
   const at = METAS.findIndex(m => m.id === last);
