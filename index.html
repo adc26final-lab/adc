@@ -413,7 +413,8 @@ const store = {
   },
   meta(c){
     return { id:c.id, title:c.title||c.id, code:c.code||"",
-             module:c.module||99, moduleName:c.moduleName||"", moduleColor:c.moduleColor||"" };
+             module:c.module||99, moduleName:c.moduleName||"", moduleColor:c.moduleColor||"",
+             cat:c.cat||"", order:c.order||0 };
   },
   load(id){                            // 고른 케이스 하나만 펼친다
     try{ const raw = localStorage.getItem(PFX+"c."+id); return raw ? JSON.parse(raw) : null; }
@@ -463,9 +464,10 @@ function groupOptions(cases){
     let g = groups.find(x => x.key === key);
     if(!g){ g = { key:key, no:(c.module||99), color:c.moduleColor||"#8A8F98", items:[] };
             groups.push(g); }
-    g.items.push({ i:i, label:(c.code ? c.code+"  " : "") + (c.title||c.id) });
+    g.items.push({ i:i, order:(c.order||999), label:(c.cat ? c.cat+" · " : "") + (c.code ? c.code+"  " : "") + (c.title||c.id) });
   });
   groups.sort((a,b) => a.no - b.no);
+  groups.forEach(g => g.items.sort((a,b) => a.order - b.order));   // 분류 안에서는 합본 순서
   return groups.map(g =>
     '<optgroup label="'+esc((g.no<90 ? "Module "+g.no+" — " : "")+g.key)+'">' +
     g.items.map(o => '<option value="'+o.i+'">'+esc(o.label)+"</option>").join("") +
@@ -518,11 +520,11 @@ async function fetchVoices(key){
 function repairIndex(){
   const ids = store.idx();
   if(!ids.length) return 0;
-  const needs = ids.some(m => !m.moduleName || !m.code);
+  const needs = ids.some(m => !m.moduleName || !m.code || (m.module > 100 && !m.order));
   if(!needs) return 0;
   let fixed = 0;
   const rebuilt = ids.map(m => {
-    if(m.moduleName && m.code) return m;
+    if(m.moduleName && m.code && !(m.module > 100 && !m.order)) return m;
     const full = store.load(m.id);
     if(!full) return m;
     fixed++;
