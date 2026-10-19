@@ -136,7 +136,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v4 · 확인용 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v5 · 확인용 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -829,6 +829,20 @@ async function blockEnd(early){
   dock([{ label:"목록", cls:"s", go:blocksStart }, { label:"다시", go:() => blockRun(a, z) }]);
 }
 
+/* ══════════ ④ 10분 롤플레이 ══════════ */
+function playStart(){
+  $("body").innerHTML =
+    '<button class="big" id="pSame" style="width:100%"><span class="n">A</span><span><div class="t">이 케이스로</div>' +
+    '<div class="d">' + esc((K.code ? K.code + " " : "") + (K.title || "")) + "</div></span></button>" +
+    '<button class="big" id="pRand" style="width:100%;margin-top:9px"><span class="n">B</span><span><div class="t">랜덤 스테이션</div>' +
+    '<div class="d">57케이스 중 무작위 · 어떤 케이스인지 모르고 큐카드부터 시작 · 이름은 채점 후 공개</div></span></button>' +
+    '<p class="note">롤플레이 화면에서 API 키 · 음성 설정을 확인한 뒤 시작 버튼을 누르세요.</p>';
+  show("④ 10분 롤플레이", "실전처럼 10분 스테이션을 돕니다.");
+  $("pSame").onclick = () => { location.href = "index.html"; };
+  $("pRand").onclick = () => { location.href = "index.html?random=1"; };
+  dock([{ label:"처음으로", cls:"s", go:home }]);
+}
+
 /* ══════════ 초기화 ══════════ */
 (function(){
   try{ loadCases(); }catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
@@ -836,7 +850,7 @@ async function blockEnd(early){
   document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     if(!K) return;
     const g = b.dataset.go;
-    if(g === "play"){ location.href = "index.html"; return; }
+    if(g === "play"){ playStart(); return; }
     if(canSpeak){ try{ speechSynthesis.speak(new SpeechSynthesisUtterance("")); }catch(e){} }   // iOS: 첫 탭에서 음성을 깨운다
     if(g === "detail") detailStart(); else if(g === "summary") summaryStart(); else blocksStart();
   });

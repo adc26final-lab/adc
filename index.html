@@ -186,7 +186,7 @@
   <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
 
   <div id="compat"></div>
-  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v11 · 롤플레이 · 블록 페이스 · 내가 먼저 인사</p>
+  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v12 · 롤플레이 · 랜덤 스테이션 · 블록 페이스 · 내가 먼저 인사</p>
 
 
   <label for="key">Anthropic API 키</label>
@@ -268,6 +268,8 @@
 
   <div class="row">
     <button class="btn" id="go">스테이션 시작</button>
+    <button class="btn ghost" id="goRandom">랜덤 스테이션 — 어떤 케이스인지 모르고 시작</button>
+    <p class="note" id="randNote">57케이스 중 하나를 무작위로 고릅니다. 최근에 나온 케이스는 피합니다. 케이스 이름은 채점 화면에서 공개됩니다.</p>
   </div>
   <button class="btn ghost" id="openImport">케이스 불러오기</button>
 
@@ -1433,7 +1435,11 @@ function drawReport(r){
   });
 
   const cf = r.criticalFail || {};
-  let h = '<div class="verdict'+(cf.triggered ? " fail" : "")+'">';
+  let h = S.random                                 // 랜덤 스테이션: 여기서 케이스를 공개한다
+    ? '<p class="note" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px">' +
+      "이번 랜덤 스테이션: <b>" + esc((k.code ? k.code + " " : "") + (k.title || k.id)) + "</b></p>"
+    : "";
+  h += '<div class="verdict'+(cf.triggered ? " fail" : "")+'">';
   if(cf.triggered){
     h += "<div><strong>Critical fail</strong></div>";
     h += '<div class="note" style="color:inherit">'+esc(cf.which)+"<br>"+esc(cf.why)+"</div>";
@@ -1512,12 +1518,27 @@ function drawPace(el){
   for(; i < bs.length; i++){ end += bs[i].sec; if(el < end) break; }
   if(i >= bs.length){ e.textContent = "마무리 시간"; return; }
   const nx = bs[i+1];
-  e.innerHTML = "지금 <b>" + esc(bs[i].name) + "</b> · " + mmss(end - el) + " 남음" +
-                (nx ? " · 다음 " + esc(nx.name) : "");
+  e.innerHTML = S.random                          // 랜덤 스테이션: 블록 이름이 케이스를 알려 주지 않게 번호만
+    ? "지금 <b>블록 " + (i+1) + " / " + bs.length + "</b> · " + mmss(end - el) + " 남음"
+    : "지금 <b>" + esc(bs[i].name) + "</b> · " + mmss(end - el) + " 남음" + (nx ? " · 다음 " + esc(nx.name) : "");
   if(S.paceAt !== i){
     if(S.paceAt != null){ try{ navigator.vibrate && navigator.vibrate(120); }catch(err){} }
     S.paceAt = i;
   }
+}
+/* 랜덤 스테이션: 최근에 나온 케이스는 피한다 */
+function recentRandom(){ try{ return JSON.parse(localStorage.getItem("osce.recentRandom") || "[]"); }catch(e){ return []; } }
+function rememberRandom(id){
+  const r = recentRandom().filter(x => x !== id); r.push(id);
+  try{ localStorage.setItem("osce.recentRandom", JSON.stringify(r.slice(-20))); }catch(e){}
+}
+function pickRandom(){
+  const n = S.metas.length;
+  if(!n) return -1;
+  const keep = Math.min(20, Math.floor(n / 2)), recent = recentRandom().slice(-keep);
+  let pool = S.metas.map((m,i) => i).filter(i => !recent.includes(S.metas[i].id));
+  if(!pool.length) pool = S.metas.map((m,i) => i);
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 function runStation(){
   S.paceAt = null;
@@ -1606,11 +1627,13 @@ $("go").onclick = () => {
   S.elWarned = false;
   S.kase = takeCase(+$("caseSel").value);
   if(!S.kase){ fail("케이스가 없습니다."); return; }
+  if(S.random) rememberRandom(S.kase.id);
   VOCAB = null;                       // 케이스가 바뀌면 낱말 사전을 다시 만든다
   primeVoice();
 
   const card = S.kase.card;
-  $("briefStation").textContent = S.kase.station || "Communication station · 10 minutes";
+  $("briefStation").textContent = S.random ? "Random station · 10 minutes"
+                                            : (S.kase.station || "Communication station · 10 minutes");
 
   let bh = "";
   if(card){
@@ -1855,6 +1878,26 @@ if(store.eng === "11" && store.elv){
 }
 loadCases();
 if(canSpeak) voicesReady().then(vs => { voiceCache = pickVoice(vs, "en-AU"); });
+
+/* 랜덤 스테이션 버튼 — 기존 시작 버튼의 흐름을 그대로 쓴다 */
+(function(){
+  const goNormal = $("go").onclick;
+  $("go").onclick = () => { S.random = false; goNormal(); };
+  $("goRandom").onclick = () => {
+    const i = pickRandom();
+    if(i < 0){ fail("케이스가 없습니다."); return; }
+    const prev = $("caseSel").value;
+    $("caseSel").value = String(i);
+    S.random = true;
+    goNormal();
+    $("caseSel").value = prev;                           // 목록에는 원래 고른 케이스를 남긴다
+  };
+  if(/[?&]random=1/.test(location.search)){            // app.html의 '랜덤 스테이션'에서 왔을 때
+    $("goRandom").classList.remove("ghost");
+    $("go").classList.add("ghost");
+    setTimeout(() => $("goRandom").scrollIntoView({ block:"center" }), 300);
+  }
+})();
 </script>
 </body>
 </html>
