@@ -61,6 +61,7 @@
   .fc .a{margin-top:16px;padding-top:14px;border-top:1px solid var(--rule)}
   .fc .a ul{margin:0;padding-left:18px} .fc .a li{margin-bottom:6px;font-size:15.5px}
   .fc .a .en{font-family:var(--serif);font-size:18px;line-height:1.5}
+  .say{padding:7px 12px;border:1px solid var(--rule);border-radius:3px;font-size:13px;color:var(--teal);background:var(--card)}
   .fc .say{margin-top:12px;padding:8px 12px;border:1px solid var(--rule);border-radius:3px;font-size:13.5px;color:var(--teal);background:var(--paper)}
 
   /* 표 */
@@ -136,7 +137,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v6 · 확인용 · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v8 · 확인용 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -395,7 +396,7 @@ function rms(){
   let x = 0; for(const v of a){ const d = (v - 128)/128; x += d*d; }
   return Math.sqrt(x / a.length);
 }
-function takeStart(key){
+function takeStart(key, onSilence){
   if(!TK.stream || !window.MediaRecorder) return;
   try{ const mt = recMime(); TK.mr = mt ? new MediaRecorder(TK.stream, { mimeType:mt }) : new MediaRecorder(TK.stream); }
   catch(e){ return; }
@@ -412,7 +413,7 @@ function takeStart(key){
     const bar = $("lvl"); if(bar) bar.style.width = Math.min(100, v / thr * 50) + "%";
     if(v > thr){ TK.spoke += 100; TK.quiet = 0; }
     else if(TK.spoke >= 300) TK.quiet += 100;
-    if(TK.spoke >= 400 && TK.quiet >= 1600 && B.run && turnKey() === key) next();
+    if(TK.spoke >= 400 && TK.quiet >= 1600){ if(onSilence){ if(TK.on && TK.key === key){ clearInterval(TK.vadT); onSilence(); } } else if(B.run && turnKey() === key) next(); }
   }, 100);
 }
 function takeStop(){
@@ -462,6 +463,7 @@ function stopAll(){
   stopSpeak(); sttStop(); clearInterval(B.timer); clearTimeout(B.autoT); clearInterval(SUMT);
   if(TK.on){ clearInterval(TK.vadT); try{ TK.mr.stop(); }catch(e){} TK.on = false; }   // 보내지 않고 버린다
   B.run = false; STT.onChange = null;
+  F.run = false; F.listen = false; F.busy = false; clearInterval(F.timer); clearTimeout(F.silT);
 }
 
 /* ══════════ 홈 ══════════ */
@@ -559,7 +561,9 @@ function detailDraw(){
   const c = D.list[D.i];
   const one = c.a.length === 1;
   const enAns = c.kind === "mustsay" || c.kind === "curveball";
-  let h = '<div class="meta"><span class="kind">' + esc(KIND[c.kind]) + "</span><span>" + (D.i+1) + " / " + D.list.length + "</span></div>";
+  const was = D.res[c.id];
+  let h = '<div class="meta"><span class="kind">' + esc(KIND[c.kind]) + "</span><span>" +
+          (was != null ? '<span class="' + (was ? "ok" : "bad") + '">' + (was ? "○" : "✕") + "</span> · " : "") + (D.i+1) + " / " + D.list.length + "</span></div>";
   h += '<div class="fc"><div class="q">' + esc(c.q) + "</div>";
   if(D.open){
     h += '<div class="a">' + (one ? '<div class="' + (enAns ? "en" : "") + '">' + esc(c.a[0]) + "</div>"
@@ -571,9 +575,10 @@ function detailDraw(){
   h += '<details style="margin-top:14px"><summary>큐카드 다시 보기</summary>' + cueHTML() + "</details>";
   $("body").innerHTML = h;
   if($("say")) $("say").onclick = () => speak(c.a[0].replace(/\([^)]*\)/g, " ").replace(/→/g, ". "));
-  dock(D.open
-    ? [{ label:"✕ 몰랐음", cls:"x", go:() => detailMark(0) }, { label:"○ 알았음", cls:"o", go:() => detailMark(1) }]
-    : [{ label:"그만", cls:"s", go:detailEnd }, { label:"답 보기", go:() => { D.open = true; detailDraw(); } }]);
+  const prev = { label:"◀ 이전", cls:"s", off:D.i === 0, go:() => { stopSpeak(); D.i--; D.open = true; detailDraw(); window.scrollTo(0,0); } };
+  dock(D.open                                             // 이전 카드는 답을 연 채로 보여 주고, ○/✕를 다시 누르면 고쳐진다
+    ? [prev, { label:"✕ 몰랐음", cls:"x", go:() => detailMark(0) }, { label:"○ 알았음", cls:"o", go:() => detailMark(1) }]
+    : [prev, { label:"그만", cls:"s", go:detailEnd }, { label:"답 보기", go:() => { D.open = true; detailDraw(); } }]);
 }
 function detailMark(v){
   stopSpeak();
@@ -665,8 +670,14 @@ const turnKey = () => B.bi + ":" + B.ti;
 const bnow = () => B.run ? (Date.now() - B.t0)/1000 : 0;
 const judge = (sec, tgt) => { const d = (sec - tgt)/tgt; return Math.abs(d) <= 0.1 ? ["ok","○"] : (d > 0 ? ["bad","길다"] : ["warn","짧다"]); };
 function blocksStart(){
-  const bs = blocks(), r = rec.blocks();
-  let h = '<button class="btn" id="all" style="margin-top:0">전체 이어서 (' + bs.length + "블록 · 10:00)</button>";
+  const bs = blocks(), r = rec.blocks(), mode = ls.raw("chk.bmode", "fixed");
+  let h = seg("bmode", [["fixed","고정 대본"],["free","자유 대화 (AI 환자)"]], mode);
+  h += '<p class="note" style="margin-bottom:12px">' + (mode === "free"
+    ? "환자를 AI가 연기합니다. 내가 말하는 대로 반응하고, 블록을 마치면 AI가 블록별로 평가합니다 (Anthropic API 크레딧 사용)."
+    : "환자 대사는 대본 그대로, 내 대사는 가려져 있습니다.") + "</p>";
+  if(mode === "free") h += '<label for="akey">Anthropic API 키 (롤플레이 앱과 공유)</label><input type="password" id="akey" placeholder="sk-ant-..." autocomplete="off" value="' + esc(apiKey()) + '">' +
+    '<p class="note">모델: ' + esc(aiModel()) + " (롤플레이 앱 설정을 따릅니다)</p>";
+  h += '<button class="btn" id="all" style="margin-top:12px">전체 이어서 (' + bs.length + "블록 · 10:00)</button>";
   h += '<div class="sh">블록 하나만</div>' + bs.map((b,i) => {
     const t = (r[b.no]||[]).slice(-1)[0], j = t != null ? judge(t, b.sec) : null;
     return '<button class="row" data-b="' + i + '"><span class="nm">' + CIRC[i] + " " + esc(b.name) + "</span>" +
@@ -675,10 +686,14 @@ function blocksStart(){
   if(eng() === "scribe" && !elKey()) h += '<p class="note">ElevenLabs Scribe가 골라져 있지만 키가 없어 브라우저 음성인식을 씁니다. 홈 맨 아래 설정에서 키를 넣으세요.</p>';
   else if(!listening()) h += '<p class="note">이 브라우저는 음성인식이 안 됩니다. 내 차례가 끝나면 "다음"을 누르세요.</p>';
   $("body").innerHTML = h;
-  show("③ 블록 말하기", "내 대사는 가려져 있습니다. 환자 말이 끝나면 말하세요. " +
+  if(mode === "free") show("③ 블록 말하기", "자유 모드: 블록을 고르면 시작 화면이 나옵니다.");
+  else show("③ 블록 말하기", "내 대사는 가려져 있습니다. 환자 말이 끝나면 말하세요. " +
        (useScribe() ? "말을 마치고 잠깐 멈추면 저절로 넘어갑니다 (ElevenLabs Scribe)." : "맞게 말하면 저절로 넘어갑니다."));
-  $("all").onclick = () => blockRun(0, bs.length - 1);
-  document.querySelectorAll("[data-b]").forEach(e => e.onclick = () => blockRun(+e.dataset.b, +e.dataset.b));
+  const go = (a, z) => ls.raw("chk.bmode", "fixed") === "free" ? freeStart(a, z) : blockRun(a, z);
+  $("all").onclick = () => go(0, bs.length - 1);
+  document.querySelectorAll("[data-b]").forEach(e => e.onclick = () => go(+e.dataset.b, +e.dataset.b));
+  wireSeg((n, v) => { ls.put("chk.bmode", v); blocksStart(); });
+  if($("akey")) $("akey").onchange = () => ls.put("osce.key", $("akey").value.trim());
   dock([{ label:"처음으로", cls:"s", go:home }]);
 }
 function blockRun(a, z){
@@ -834,6 +849,238 @@ async function blockEnd(early){
     s.classList.toggle("o", ok); s.classList.toggle("x", !ok);
   });
   dock([{ label:"목록", cls:"s", go:blocksStart }, { label:"다시", go:() => blockRun(a, z) }]);
+}
+
+/* ══════════ ③-2 블록 말하기 · 자유 모드 (AI 환자) ══════════ */
+const apiKey = () => ls.raw("osce.key", "");
+const aiModel = () => ls.raw("osce.model", "") || "claude-opus-5-5";     // 롤플레이 앱에서 고른 모델을 따른다
+async function claude(system, messages, maxTokens, effort){
+  if(!apiKey()) throw new Error("Anthropic API 키가 없습니다.");
+  const ac = new AbortController(), bell = setTimeout(() => ac.abort(), 90000);
+  let res;
+  try{
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST", signal:ac.signal,
+      headers:{ "content-type":"application/json", "x-api-key":apiKey(), "anthropic-version":"2023-06-01",
+                "anthropic-dangerous-direct-browser-access":"true" },
+      body: JSON.stringify({ model:aiModel(), max_tokens:maxTokens || 1024,
+        output_config:{ effort: effort || "low" },
+        system:[{ type:"text", text:system, cache_control:{ type:"ephemeral" } }], messages:messages })
+    });
+  }catch(e){ throw new Error(e && e.name === "AbortError" ? "응답이 너무 오래 걸려 취소했습니다." : "네트워크에 닿지 못했습니다."); }
+  finally{ clearTimeout(bell); }
+  if(!res.ok){
+    let d = ""; try{ const j = await res.json(); d = (j.error && j.error.message) || ""; }catch(e){}
+    if(res.status === 401) throw new Error("API 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("요청 한도에 걸렸습니다. 잠시 뒤 다시.");
+    throw new Error("API 오류 " + res.status + (d ? " — " + d : ""));
+  }
+  const data = await res.json();
+  if(data.stop_reason === "refusal") throw new Error("모델이 응답을 거절했습니다. 다시 시도하세요.");
+  return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
+}
+
+const F = { a:0, z:0, bi:0, t0:0, bStart:0, run:false, timer:null, buzz:false, busy:false, listen:false,
+            turns:[], splits:[], silT:null, base:0 };
+const fnow = () => F.run ? (Date.now() - F.t0)/1000 : 0;
+
+function patientSys(){
+  const k = K, bs = blocks(), b = bs[F.bi], p = k.patient || {};
+  const before = bs.slice(0, F.a).map(x => x.turns.map(t => (t.who === "dr" ? "DENTIST: " : "PATIENT: ") + t.en).join("\n")).join("\n");
+  const cues = (k.cues || []).map(c => "- " + (c.hidden || c.reveal) + (c.probe ? "   (drawn out by: " + c.probe + ")" : "")).join("\n");
+  return [
+    "You are role-playing a patient in a dental communication exam. Stay fully in character.",
+    "", "WHO YOU ARE", p.persona || "",
+    "", "HIDDEN INFORMATION (notes in Korean for the examiner; never speak Korean).",
+    "Reveal an item only when the dentist asks something that naturally draws it out. Never volunteer it.", cues,
+    (p.sampleLines || []).length ? "\nHOW THIS PATIENT TALKS (match the voice; do not reuse word for word):\n" + p.sampleLines.slice(0, 12).map(l => "- " + l).join("\n") : "",
+    "", "THIS PRACTICE COVERS ONLY PART OF THE CONSULTATION.",
+    F.a === 0 ? "It starts at the very beginning. The dentist speaks first." + (p.opening ? " On your first reply, give your concern close to: \"" + p.opening + "\"" : "")
+              : "Earlier in the consultation, this was already said:\n" + before + "\nContinue naturally from there. Do not repeat your opening concern.",
+    "The dentist is now working on: " + b.name + " — " + b.todo,
+    "", "RULES",
+    "- Spoken words only. No narration, labels or stage directions.",
+    "- One to three short sentences, like a real person.",
+    "- Two questions at once: answer only the one you noticed.",
+    "- Jargon: react like a layperson who did not follow it.",
+    "- The dentist's words come through speech recognition; read past a garbled word.",
+    "- Never coach, grade or break character."
+  ].join("\n");
+}
+
+function freeStart(a, z){
+  stopAll(); sttReset();
+  if(!apiKey()){ alert("자유 모드는 AI 환자를 씁니다. 블록 목록 위에 Anthropic API 키를 넣으세요."); return; }
+  Object.assign(F, { a:a, z:z, bi:a, t0:0, bStart:0, run:false, buzz:false, busy:false, listen:false, turns:[], splits:[], base:0 });
+  TK.pending = []; TK.warned = false;
+  STT.onChange = freeHeard;
+  show((a === z ? CIRC[a] + " " + blocks()[a].name : "전체 이어서") + " · 자유", "");
+  freeDraw();
+  dock([{ label:"목록", cls:"s", go:() => { stopAll(); blocksStart(); } }, { label:"시작 — 내가 먼저 말하기", go:freeGo }]);
+}
+async function freeGo(){
+  if(useScribe()){ try{ await micOpen(); }catch(e){ alert("마이크를 쓸 수 없습니다. '타이핑'으로 진행하세요."); } }
+  F.run = true; F.t0 = Date.now();
+  F.timer = setInterval(freeTick, 200);
+  freeListen();
+}
+function freeTick(){
+  const b = blocks()[F.bi], t = fnow() - F.bStart, c = $("fc");
+  if(!c) return;
+  c.textContent = mmss(t);
+  c.className = "c " + (t > b.sec*1.1 ? "over" : (t > b.sec*0.9 ? "warn" : ""));
+  if(t >= b.sec && !F.buzz){ F.buzz = true; try{ navigator.vibrate && navigator.vibrate([200,100,200]); }catch(e){} }
+  const tt = $("ft"); if(tt) tt.textContent = mmss(fnow());
+}
+function freeDraw(){
+  const bs = blocks(), b = bs[F.bi];
+  let cum = 0; for(let i = F.a; i <= F.bi; i++) cum += bs[i].sec;
+  let h = '<div class="clock"><div class="r"><span class="c" id="fc">' + mmss(fnow() - F.bStart) + '</span><span class="g">목표 ' + mmss(b.sec) + "</span></div>" +
+          '<div class="b">' + CIRC[F.bi] + " " + esc(b.name) + (F.a !== F.z ? ' <span class="g" style="font-weight:400">· 전체 <span id="ft">' + mmss(fnow()) + "</span> / " + mmss(cum) + "</span>" : "") + "</div>" +
+          '<div class="td">' + esc(b.todo) + "</div></div>";
+  h += F.turns.filter(t => t.bi === F.bi).map(t =>
+    '<div class="turn ' + (t.who === "dr" ? "dr" : "pt") + '"><div class="who">' + (t.who === "dr" ? "나" : "환자") + '</div><div class="en">' + esc(t.text) + "</div></div>").join("");
+  if(F.busy) h += '<div class="turn pt"><div class="who">환자</div><div class="en hid">…</div></div>';
+  if(F.listen) h += '<div class="turn dr now"><div class="who">나</div>' +
+    (useScribe() && TK.stream ? '<div class="recbox">● 녹음 중 — 말을 마치고 잠깐 멈추면 보냅니다<span class="lvl"><i id="lvl"></i></span></div>'
+                              : '<div class="heard" id="heard"></div>') +
+    '<button class="say" id="typeIt" style="margin-top:8px">타이핑으로 말하기</button></div>';
+  if(!F.run && !F.turns.length) h += '<p class="note">시작을 누르면 시계가 가고 마이크가 켜집니다. 환자는 AI가 내 말에 맞춰 대답합니다. ' +
+    "목표 시간이 되면 진동이 울립니다. 블록을 마치면 '블록 끝'을 누르세요. 끝나면 AI가 블록별로 평가합니다.</p>";
+  $("body").innerHTML = h;
+  freeHeard();
+  if($("typeIt")) $("typeIt").onclick = freeType;
+  const last = document.querySelector("#body .turn:last-child"); if(F.run && last) last.scrollIntoView({ block:"end" });
+  if(F.run) freeDock();
+}
+function freeDock(){
+  dock([{ label:"그만", cls:"s", go:() => freeEnd(true) },
+        { label: F.bi >= F.z ? "끝 · 평가" : "블록 끝 ▶", cls:"s", off:F.busy, go:freeBlockDone },
+        { label:"말 끝 ▶", off:!F.listen, go:freeEndTurn }]);
+}
+function freeType(){
+  const t = prompt("내 말 (영어)");
+  if(t && t.trim()){ freeStopListen(); if(TK.on){ clearInterval(TK.vadT); try{ TK.mr.stop(); }catch(e){} TK.on = false; } freeSubmit(t.trim()); }
+}
+function freeHeard(){
+  const e = $("heard"); if(!e) return;
+  e.innerHTML = esc(STT.fin.slice(F.base).trim()) + (STT.inter ? ' <span class="i">' + esc(STT.inter) + "</span>" : "");
+  if(F.listen && useBrowser()){                       // 말이 이어지는 동안 미루다가 1.6초 조용하면 보낸다
+    clearTimeout(F.silT);
+    F.silT = setTimeout(() => { if(F.listen && STT.fin.slice(F.base).trim()) freeEndTurn(); }, 1600);
+  }
+}
+function freeListen(){
+  if(!F.run) return;
+  F.listen = true; F.base = STT.fin.length;
+  if(useScribe() && TK.stream) takeStart("free", () => freeEndTurn());
+  else if(useBrowser()) sttStart();
+  freeDraw();
+}
+function freeStopListen(){ F.listen = false; clearTimeout(F.silT); sttStop(); }
+async function freeEndTurn(){
+  if(!F.listen) return;
+  if(useScribe() && TK.on){
+    F.listen = false; F.busy = true; freeDraw();
+    const long = Date.now() - TK.t0 > 700, blob = await takeStop();
+    let text = "";
+    try{ text = (blob && blob.size >= 1200 && long) ? await scribeText(blob) : ""; }
+    catch(e){ alert(e.message + "\n'타이핑'으로 이어 가세요."); }
+    F.busy = false;
+    if(!F.run) return;
+    if(text) freeSubmit(text); else freeListen();
+    return;
+  }
+  const text = STT.fin.slice(F.base).trim() + (STT.inter ? " " + STT.inter : "");
+  freeStopListen();
+  if(text.trim()) freeSubmit(text.trim()); else freeListen();
+}
+async function freeSubmit(text){
+  F.turns.push({ who:"dr", text:text, bi:F.bi });
+  F.busy = true; freeDraw();
+  const msgs = [];
+  F.turns.forEach(t => {
+    const role = t.who === "dr" ? "user" : "assistant";
+    if(msgs.length && msgs[msgs.length-1].role === role) msgs[msgs.length-1].content += " " + t.text;
+    else msgs.push({ role:role, content:t.text });
+  });
+  let reply = "";
+  try{ reply = await claude(patientSys(), msgs, 300, "low"); }
+  catch(e){ F.busy = false; freeDraw(); alert(e.message); freeListen(); return; }
+  F.busy = false;
+  if(!F.run) return;
+  F.turns.push({ who:"pt", text:reply, bi:F.bi });
+  freeDraw();
+  speak(reply, () => freeListen());
+}
+function freeBlockDone(){
+  if(F.listen){ freeStopListen(); if(TK.on){ clearInterval(TK.vadT); try{ TK.mr.stop(); }catch(e){} TK.on = false; } }
+  stopSpeak();
+  const t = fnow();
+  F.splits.push({ i:F.bi, sec:t - F.bStart });
+  rec.addBlock(blocks()[F.bi].no, t - F.bStart);
+  if(F.bi < F.z){
+    F.bi++; F.bStart = t; F.buzz = false;
+    try{ navigator.vibrate && navigator.vibrate([80,60,80]); }catch(e){}
+    freeListen();
+  } else freeEnd(false);
+}
+async function freeEnd(early){
+  const splits = F.splits.slice(), turns = F.turns.slice(), bs = blocks();
+  stopAll(); micClose();
+  if(!splits.length){ $("body").innerHTML = '<p class="sub">기록 없이 멈췄습니다.</p>'; show("③ 자유 모드 — 결과", "");
+    dock([{ label:"목록", cls:"s", go:blocksStart }]); return; }
+  $("body").innerHTML = '<p class="sub">AI가 블록별로 평가하는 중… (20~40초)</p>'; dock([]);
+  show("③ 자유 모드 — 평가", "");
+  const spec = splits.map(s => { const b = bs[s.i];
+    return "### BLOCK " + (s.i+1) + ": " + b.name + "\nTarget time: " + b.sec + "s · Actual: " + Math.round(s.sec) + "s\nTo do: " + b.todo +
+      "\nMust-say (meaning must appear): " + JSON.stringify(b.mustsay || []) + "\nKey lines: " + JSON.stringify(b.key || []) +
+      "\nModel script (reference only):\n" + b.turns.map(t => (t.who === "dr" ? "D: " : "P: ") + t.en).join("\n") +
+      "\nWHAT ACTUALLY HAPPENED:\n" + turns.filter(t => t.bi === s.i).map(t => (t.who === "dr" ? "DENTIST: " : "PATIENT: ") + t.text).join("\n"); }).join("\n\n");
+  const sys = [
+    "당신은 ADC Part 2 OSCE 커뮤니케이션 코치입니다. 아래 블록마다 후보자(DENTIST)가 실제로 한 말만 근거로 평가하세요.",
+    "모범 대본과 문장이 같을 필요는 없습니다. 뜻이 전달됐으면 인정합니다. 후하게 주지 마세요.",
+    "must-say는 같은 뜻이 실제로 나왔으면 said=true.",
+    "JSON만 출력하세요. 설명도 코드펜스도 붙이지 마세요.",
+    '{"blocks":[{"no":1,"grade":"○|△|✕","done":["한 일 (한국어 짧게)"],"missed":["놓친 것"],"mustsay":[{"text":"must-say 원문","said":true}],' +
+    '"fixes":[{"said":"후보자가 실제로 한 문장","better":"더 나은 쉬운 영어 문장 (12단어 이하)"}]}],"summary":"한국어 2~3문장"}',
+    "fixes는 블록마다 0~2개, 반드시 후보자가 실제로 한 문장에서 고르세요."
+  ].join("\n");
+  let r = null, err = "";
+  for(let n = 0; n < 2 && !r; n++){
+    try{
+      const raw = await claude(sys, [{ role:"user", content:spec }], 6000, "medium");
+      const t = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+      r = JSON.parse(t);
+    }catch(e){ err = e.message; }
+  }
+  freeReport(splits, turns, r, err);
+}
+function freeReport(splits, turns, r, err){
+  const bs = blocks(), byNo = {};
+  ((r && r.blocks) || []).forEach(x => byNo[x.no] = x);
+  let tg = 0;
+  let h = '<table class="t"><tr><th>블록</th><th>목표</th><th>걸린</th><th>시간</th><th>내용</th></tr>' + splits.map(s => {
+    const b = bs[s.i], j = judge(s.sec, b.sec), g = (byNo[s.i+1] || {}).grade || "—"; tg += b.sec;
+    return "<tr><td>" + CIRC[s.i] + " " + esc(b.name) + '</td><td class="num">' + mmss(b.sec) + '</td><td class="num">' + mmss(s.sec) +
+      '</td><td class="' + j[0] + '">' + j[1] + '</td><td class="' + (g === "○" ? "ok" : g === "✕" ? "bad" : "warn") + '">' + esc(g) + "</td></tr>"; }).join("") + "</table>";
+  if(!r) h += '<p class="note">평가를 받지 못했습니다: ' + esc(err) + " — 시간 기록과 대화는 아래에 있습니다.</p>";
+  if(r && r.summary) h += '<p class="sub" style="color:var(--ink);margin-top:12px">' + esc(r.summary) + "</p>";
+  splits.forEach(s => {
+    const b = bs[s.i], x = byNo[s.i+1];
+    h += '<div class="sh">' + CIRC[s.i] + " " + esc(b.name) + "</div>";
+    if(x){
+      if((x.done||[]).length) h += '<div class="slot o">' + x.done.map(esc).join("<br>") + "</div>";
+      if((x.missed||[]).length) h += '<div class="slot x">놓친 것: ' + x.missed.map(esc).join(" · ") + "</div>";
+      (x.mustsay||[]).forEach(m => h += '<div class="slot ' + (m.said ? "o" : "x") + '"><div class="p">must-say ' + (m.said ? "○" : "✕") + "</div>" + esc(m.text) + "</div>");
+      (x.fixes||[]).forEach(f => h += '<div class="slot"><div class="p">내가 한 말</div>' + esc(f.said) + '<div class="p" style="margin-top:6px">이렇게</div><b>' + esc(f.better) + "</b></div>");
+    }
+    h += '<details><summary>대화 보기</summary>' + turns.filter(t => t.bi === s.i).map(t =>
+      '<div class="turn ' + (t.who === "dr" ? "dr" : "pt") + '"><div class="who">' + (t.who === "dr" ? "나" : "환자") + '</div><div class="en">' + esc(t.text) + "</div></div>").join("") + "</details>";
+  });
+  $("body").innerHTML = h;
+  show("③ 자유 모드 — 평가", "");
+  dock([{ label:"목록", cls:"s", go:blocksStart }, { label:"다시", go:() => freeStart(splits[0].i, splits[splits.length-1].i) }]);
 }
 
 /* ══════════ ④ 10분 롤플레이 ══════════ */
