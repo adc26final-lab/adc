@@ -136,7 +136,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v5 · 확인용 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v6 · 확인용 · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -525,7 +525,13 @@ function drawHome(){
 
 /* ══════════ ① 디테일 확인 ══════════ */
 const D = { list:[], i:0, open:false, res:{} };
-function detailStart(){
+function detailStart(){                                   // 큐카드를 먼저 보여 주고 카드로 넘어간다
+  $("body").innerHTML = cueHTML() +
+    '<p class="note">큐카드를 읽고 이 케이스의 진단 · 숨은 문제 · 꼭 말할 것을 먼저 떠올려 보세요.</p>';
+  show("① 디테일 확인", "큐카드");
+  dock([{ label:"처음으로", cls:"s", go:home }, { label:"다음 — 카드 고르기", go:detailSetup }]);
+}
+function detailSetup(){
   const deck = K.deck || [], r = rec.detail();
   const size = +ls.raw("chk.size", "20");
   const wrong = deck.filter(c => r[c.id] === 0);
@@ -562,6 +568,7 @@ function detailDraw(){
     h += "</div>";
   }
   h += "</div>";
+  h += '<details style="margin-top:14px"><summary>큐카드 다시 보기</summary>' + cueHTML() + "</details>";
   $("body").innerHTML = h;
   if($("say")) $("say").onclick = () => speak(c.a[0].replace(/\([^)]*\)/g, " ").replace(/→/g, ". "));
   dock(D.open
