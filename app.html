@@ -75,6 +75,9 @@
   .ox button{flex:1;padding:7px 2px;border:1px solid var(--rule);border-radius:3px;font-size:13px;background:var(--paper);color:var(--ink-soft)}
   .ox button.o{background:var(--teal);color:#fff;border-color:var(--teal)}
   .ox button.x{background:var(--red);color:#fff;border-color:var(--red)}
+  .rl{padding:3px 6px;margin:0 -6px;border-radius:3px;cursor:pointer}
+  .rl.rq{font-weight:600} .rl.ra{font-size:15px;padding-left:14px} .rl.who{font-weight:600;font-size:16px}
+  .rl.now{background:var(--amber-pale);box-shadow:inset 3px 0 0 var(--amber)}
   .sh{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--teal);margin:20px 0 8px}
 
   /* 큐카드 */
@@ -137,7 +140,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v8 · 확인용 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v9 · 확인용 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -145,6 +148,7 @@
     <button class="big" data-go="summary"><span class="n">2</span><span><div class="t">3분 요약</div><div class="d">큐카드 보고 종이에 블록표 → 정답과 맞추기</div></span></button>
     <button class="big" data-go="blocks"><span class="n">3</span><span><div class="t">블록 말하기</div><div class="d">블록마다 정해진 시간 안에 말하기</div></span></button>
     <button class="big" data-go="play"><span class="n">4</span><span><div class="t">10분 롤플레이</div><div class="d">AI 환자 · 채점</div></span></button>
+    <button class="big" data-go="read"><span class="n">5</span><span><div class="t">케이스 디테일 읽기</div><div class="d">디테일 카드 전부를 한 페이지로 · 소리로 듣기 (운전 중 · API 없음)</div></span></button>
   </div>
   <p class="note" id="noBlocks"></p>
 
@@ -268,7 +272,7 @@ function wireSeg(on){
 
 /* ══════════ 음성 (환자) ══════════ */
 const canSpeak = "speechSynthesis" in window;
-let VOICE = null;
+let VOICE = null, VOICE_KO = null;
 const rate = () => parseFloat(ls.raw("chk.rate", "1.1")) || 1.1;
 function pickVoice(){
   if(!canSpeak) return;
@@ -276,6 +280,7 @@ function pickVoice(){
   VOICE = vs.find(v => (v.lang||"").replace("_","-").startsWith("en-AU")) ||
           vs.find(v => (v.lang||"").replace("_","-").startsWith("en-GB")) ||
           vs.find(v => (v.lang||"").startsWith("en")) || null;
+  VOICE_KO = vs.find(v => (v.lang||"").replace("_","-").toLowerCase().startsWith("ko")) || null;
 }
 if(canSpeak){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 function chunks(text){
@@ -460,6 +465,7 @@ function takeSend(){
 }
 
 function stopAll(){
+  if(RD.on) readStop();
   stopSpeak(); sttStop(); clearInterval(B.timer); clearTimeout(B.autoT); clearInterval(SUMT);
   if(TK.on){ clearInterval(TK.vadT); try{ TK.mr.stop(); }catch(e){} TK.on = false; }   // 보내지 않고 버린다
   B.run = false; STT.onChange = null;
@@ -507,6 +513,7 @@ function drawHome(){
   btn("summary").disabled = !hasB;
   btn("blocks").disabled = !hasB;
   btn("play").disabled = !has;
+  btn("read").disabled = !hasD;
   $("noBlocks").textContent = has && !hasB ? "이 케이스는 아직 블록 대본이 없어 2 · 3번이 꺼져 있습니다." :
                               (has && !hasD ? "이 케이스에는 디테일 카드가 없습니다. 새 JSON을 넣으세요." : "");
   if(!has){ $("stat").textContent = ""; $("setup").open = true; return; }
@@ -1083,6 +1090,80 @@ function freeReport(splits, turns, r, err){
   dock([{ label:"목록", cls:"s", go:blocksStart }, { label:"다시", go:() => freeStart(splits[0].i, splits[splits.length-1].i) }]);
 }
 
+/* ══════════ ⑤ 케이스 디테일 읽기 (한 페이지 · 소리로 듣기 · 브라우저 기본 음성, API 없음) ══════════ */
+const RD = { items:[], i:0, on:false, lock:null };
+const hasKo = t => /[가-힣]/.test(t);
+function sayLine(text, onEnd){                              // 한국어가 섞인 줄은 한국어 음성, 아니면 영어 음성
+  const id = ++sayId;
+  const done = () => { if(id === sayId){ clearInterval(keep); onEnd && onEnd(); } };
+  if(!canSpeak || !text){ setTimeout(done, 200); return; }
+  speechSynthesis.cancel(); clearInterval(keep);
+  keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
+  const ko = hasKo(text);
+  const clean = text.replace(/[→·]/g, ", ").replace(/[★※]/g, "").replace(/\s*\/\s*/g, ", ");
+  const parts = chunks(clean); let i = 0;
+  const next = () => {
+    if(id !== sayId) return;
+    if(i >= parts.length){ done(); return; }
+    const u = new SpeechSynthesisUtterance(parts[i++]);
+    if(ko){ u.lang = "ko-KR"; if(VOICE_KO) u.voice = VOICE_KO; } else { u.lang = "en-AU"; if(VOICE) u.voice = VOICE; }
+    u.rate = rate();
+    let moved = false; const go = () => { if(!moved){ moved = true; next(); } };
+    u.onend = go; u.onerror = go;
+    speechSynthesis.speak(u);
+    setTimeout(() => { if(!speechSynthesis.speaking) go(); }, Math.max(3000, parts[i-1].length / (ko ? 6 : 12) * 1000 / rate() + 2500));
+  };
+  next();
+}
+function readStart(){
+  const deck = (K.deck || []).slice().sort((a,b) => a.ord - b.ord);
+  const items = [];
+  let h = '<p class="note" style="margin-top:0">▶ 듣기를 누르면 위에서부터 차례로 읽습니다. 줄을 누르면 거기서부터 읽습니다. ' +
+          "브라우저 기본 음성이라 API 키 · 인터넷 크레딧이 필요 없습니다.</p>";
+  const line = (text, cls, pre) => { const n = items.length; items.push({ text:(pre || "") + text });
+    return '<div class="rl ' + (cls || "") + '" id="rl' + n + '" data-n="' + n + '">' + esc(text) + "</div>"; };
+  const c = K.card;
+  if(c){
+    h += '<div class="sh">큐카드</div><div class="cue" style="font-size:14.5px">' + line(c.patient, "who");
+    (c.sections || []).forEach(s => (s.items || []).forEach(x => h += line(x)));
+    (c.tasks || []).forEach(x => h += line("Task: " + x));
+    h += "</div>";
+  }
+  let kind = "";
+  deck.forEach(d => {
+    if(d.kind !== kind){ kind = d.kind; h += '<div class="sh">' + esc(KIND[kind]) + "</div>"; }
+    h += '<div class="slot">' + line(d.q.replace(/\n/g, " · "), "rq") +
+         d.a.map(x => line(x, "ra")).join("") + "</div>";
+  });
+  $("body").innerHTML = h;
+  Object.assign(RD, { items:items, i:0, on:false });
+  show("케이스 디테일 읽기", (K.code ? K.code + " " : "") + (K.title || ""));
+  document.querySelectorAll(".rl").forEach(e => e.onclick = () => { readPlay(+e.dataset.n); });
+  readDock();
+}
+function readDock(){
+  dock([{ label:"처음으로", cls:"s", go:home },
+        { label:"◀", cls:"s", go:() => readPlay(Math.max(0, RD.i - 1)) },
+        { label: RD.on ? "❚❚ 멈춤" : "▶ 듣기", go:() => RD.on ? readStop() : readPlay(RD.i) },
+        { label:"▶▶", cls:"s", go:() => readPlay(Math.min(RD.items.length - 1, RD.i + 1)) }]);
+}
+async function readPlay(n){
+  RD.i = n; RD.on = true; readDock();
+  try{ if(!RD.lock && navigator.wakeLock) RD.lock = await navigator.wakeLock.request("screen"); }catch(e){}   // 듣는 동안 화면이 꺼지지 않게
+  const step = () => {
+    if(!RD.on) return;
+    if(RD.i >= RD.items.length){ readStop(); RD.i = 0; return; }
+    document.querySelectorAll(".rl.now").forEach(e => e.classList.remove("now"));
+    const e = $("rl" + RD.i); if(e){ e.classList.add("now"); e.scrollIntoView({ block:"center", behavior:"smooth" }); }
+    sayLine(RD.items[RD.i].text, () => { if(!RD.on) return; RD.i++; setTimeout(step, 450); });
+  };
+  step();
+}
+function readStop(){
+  RD.on = false; stopSpeak(); readDock();
+  if(RD.lock){ try{ RD.lock.release(); }catch(e){} RD.lock = null; }
+}
+
 /* ══════════ ④ 10분 롤플레이 ══════════ */
 function playStart(){
   $("body").innerHTML =
@@ -1106,6 +1187,7 @@ function playStart(){
     const g = b.dataset.go;
     if(g === "play"){ playStart(); return; }
     if(canSpeak){ try{ speechSynthesis.speak(new SpeechSynthesisUtterance("")); }catch(e){} }   // iOS: 첫 탭에서 음성을 깨운다
+    if(g === "read"){ readStart(); return; }
     if(g === "detail") detailStart(); else if(g === "summary") summaryStart(); else blocksStart();
   });
   $("rate").value = String(rate());
