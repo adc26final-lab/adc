@@ -140,7 +140,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v9 · 확인용 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v10 · 확인용 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -1093,33 +1093,97 @@ function freeReport(splits, turns, r, err){
 /* ══════════ ⑤ 케이스 디테일 읽기 (한 페이지 · 소리로 듣기 · 브라우저 기본 음성, API 없음) ══════════ */
 const RD = { items:[], i:0, on:false, lock:null };
 const hasKo = t => /[가-힣]/.test(t);
-function sayLine(text, onEnd){                              // 한국어가 섞인 줄은 한국어 음성, 아니면 영어 음성
+/* 읽기 좋게 기호를 말로 바꾼다 (언어별) */
+function speechText(t, ko){
+  t = t.replace(/[★※]/g, "").replace(/["“”]/g, "");
+  t = t.replace(/([①-⑳])/g, (m) => (m.charCodeAt(0) - 0x245F) + (ko ? "번, " : ", "));
+  if(ko){
+    t = t.replace(/(\d)\s*~\s*(\d)/g, "$1에서 $2").replace(/(\d)\s*[–-]\s*(\d)/g, "$1에서 $2")
+         .replace(/(\d)\s*mm\b/gi, "$1 밀리미터").replace(/(\d)\s*mg\b/gi, "$1 밀리그램").replace(/%/g, " 퍼센트")
+         .replace(/\(\+\)/g, " 양성").replace(/\(\s*[−-]\s*\)/g, " 음성").replace(/✕/g, " 아님").replace(/○/g, " 맞음")
+         .replace(/\s*=\s*/g, ", 즉 ").replace(/\s*\+\s*/g, ", ").replace(/\s*[→↔]\s*/g, ", ").replace(/\s*[·/]\s*/g, ", ");
+  } else {
+    t = t.replace(/(\d)\s*~\s*(\d)/g, "$1 to $2").replace(/(\d)\s*[–-]\s*(\d)/g, "$1 to $2")
+         .replace(/(\d)\s*mm\b/gi, "$1 millimetres").replace(/(\d)\s*mg\b/gi, "$1 milligrams").replace(/%/g, " percent")
+         .replace(/\(\+\)/g, " positive").replace(/\(\s*[−-]\s*\)/g, " negative").replace(/✕/g, " no").replace(/○/g, " yes")
+         .replace(/\s*=\s*/g, ", ").replace(/\s*\+\s*/g, " and ").replace(/\s*[→↔]\s*/g, ", ").replace(/\s*[·/]\s*/g, ", ");
+  }
+  t = t.replace(/\s*[—–]\s*/g, ", ").replace(/\s*[()]\s*/g, ", ");
+  return t.replace(/^[,\s]+/, "").replace(/\s*,\s*(,\s*)+/g, ", ").replace(/\s+,/g, ",").replace(/\s+/g, " ").trim();
+}
+/* 한 줄을 한국어 / 영어 덩어리로 나눈다: "Periodontitis는 이 나이에" → [en "Periodontitis"] [ko "는 이 나이에"] */
+function splitLang(text){
+  const segs = [];
+  const push = (lang, s) => {
+    if(!s.trim()) return;
+    const last = segs[segs.length - 1];
+    if(last && last.lang === lang) last.text += " " + s; else segs.push({ lang:lang, text:s });
+  };
+  let cur = "", curLang = null;
+  for(const tok of text.split(/(\s+)/)){
+    if(!tok.trim()){ cur += tok; continue; }
+    // 영어 단어 뒤에 붙은 조사 ("crossbite라고") 는 떼어 낸다
+    const m = tok.match(/^([A-Za-z][A-Za-z0-9'’.\-]*)([가-힣].*)$/);
+    const parts = m ? [m[1], m[2]] : [tok];
+    for(const p of parts){
+      const lang = /[가-힣]/.test(p) ? "ko" : (/[A-Za-z]/.test(p) ? "en" : curLang);   // 숫자 · 기호는 앞 덩어리에 붙인다
+      if(curLang && lang !== curLang){ push(curLang, cur); cur = ""; }
+      curLang = lang || curLang || "ko";
+      cur += (cur && !/\s$/.test(cur) && parts.length > 1 && p === parts[1] ? "" : "") + (cur && !/\s$/.test(cur) ? " " : "") + p;
+    }
+  }
+  push(curLang || "en", cur);
+  return segs;
+}
+/* 브라우저 음성: 덩어리마다 그 언어 음성으로 이어서 읽는다 (큐에 한꺼번에 넣어 끊김을 줄인다) */
+function sayLine(text, onEnd){
   const id = ++sayId;
   const done = () => { if(id === sayId){ clearInterval(keep); onEnd && onEnd(); } };
   if(!canSpeak || !text){ setTimeout(done, 200); return; }
   speechSynthesis.cancel(); clearInterval(keep);
   keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
-  const ko = hasKo(text);
-  const clean = text.replace(/[→·]/g, ", ").replace(/[★※]/g, "").replace(/\s*\/\s*/g, ", ");
-  const parts = chunks(clean); let i = 0;
-  const next = () => {
-    if(id !== sayId) return;
-    if(i >= parts.length){ done(); return; }
-    const u = new SpeechSynthesisUtterance(parts[i++]);
-    if(ko){ u.lang = "ko-KR"; if(VOICE_KO) u.voice = VOICE_KO; } else { u.lang = "en-AU"; if(VOICE) u.voice = VOICE; }
-    u.rate = rate();
-    let moved = false; const go = () => { if(!moved){ moved = true; next(); } };
-    u.onend = go; u.onerror = go;
+  const pieces = [];
+  splitLang(text).forEach(s => chunks(speechText(s.text, s.lang === "ko")).forEach(c => pieces.push({ lang:s.lang, text:c })));
+  if(!pieces.length){ setTimeout(done, 200); return; }
+  let left = pieces.length, total = 0;
+  pieces.forEach(p => {
+    const u = new SpeechSynthesisUtterance(p.text);
+    const v = p.lang === "ko" ? voiceKo() : voiceEn();
+    u.lang = p.lang === "ko" ? "ko-KR" : "en-AU"; if(v) u.voice = v;
+    u.rate = rate() * (p.lang === "ko" ? 0.95 : 1);
+    total += p.text.length / (p.lang === "ko" ? 6 : 12);
+    u.onend = u.onerror = () => { if(--left <= 0) done(); };
     speechSynthesis.speak(u);
-    setTimeout(() => { if(!speechSynthesis.speaking) go(); }, Math.max(3000, parts[i-1].length / (ko ? 6 : 12) * 1000 / rate() + 2500));
-  };
-  next();
+  });
+  setTimeout(() => { if(id === sayId && !speechSynthesis.speaking && !speechSynthesis.pending) done(); }, Math.max(4000, total * 1000 / rate() + 4000));
+}
+/* 음성 고르기: 사용자가 고른 것 → 자연스러운 음성 이름 → 아무거나 */
+const GOOD = /premium|enhanced|natural|neural|google|siri|향상|고급/i;
+function voicesOf(prefix){
+  if(!canSpeak) return [];
+  return (speechSynthesis.getVoices() || []).filter(v => (v.lang || "").replace("_","-").toLowerCase().startsWith(prefix));
+}
+function voiceKo(){
+  const vs = voicesOf("ko"), want = ls.raw("chk.vko", "");
+  return vs.find(v => v.name === want) || vs.find(v => GOOD.test(v.name)) || vs[0] || null;
+}
+function voiceEn(){
+  const vs = voicesOf("en"), want = ls.raw("chk.ven", "");
+  return vs.find(v => v.name === want) || VOICE;
 }
 function readStart(){
   const deck = (K.deck || []).slice().sort((a,b) => a.ord - b.ord);
   const items = [];
-  let h = '<p class="note" style="margin-top:0">▶ 듣기를 누르면 위에서부터 차례로 읽습니다. 줄을 누르면 거기서부터 읽습니다. ' +
-          "브라우저 기본 음성이라 API 키 · 인터넷 크레딧이 필요 없습니다.</p>";
+  let h = "";
+  {
+    const opt = (vs, cur) => vs.map(v => '<option' + (v.name === cur ? " selected" : "") + ">" + esc(v.name) + "</option>").join("");
+    const ko = voicesOf("ko"), en = voicesOf("en"), vk = voiceKo(), ve = voiceEn();
+    h += '<p class="note">한국어는 한국어 음성, 영어 단어는 영어 음성으로 나눠 읽습니다. 더 자연스러운 음성이 있으면 골라 보세요 ' +
+         "(아이폰: 설정 → 손쉬운 사용 → 읽기 및 말하기 → 음성에서 '향상된' 음성을 내려받으면 여기에 나옵니다).</p>";
+    if(ko.length) h += '<label>한국어 음성</label><select id="vko">' + opt(ko, vk && vk.name) + "</select>";
+    if(en.length) h += '<label>영어 음성</label><select id="ven">' + opt(en, ve && ve.name) + "</select>";
+  }
+  h += '<p class="note">▶ 듣기를 누르면 위에서부터 차례로 읽습니다. 줄을 누르면 거기서부터 읽습니다.</p>';
   const line = (text, cls, pre) => { const n = items.length; items.push({ text:(pre || "") + text });
     return '<div class="rl ' + (cls || "") + '" id="rl' + n + '" data-n="' + n + '">' + esc(text) + "</div>"; };
   const c = K.card;
@@ -1139,6 +1203,8 @@ function readStart(){
   Object.assign(RD, { items:items, i:0, on:false });
   show("케이스 디테일 읽기", (K.code ? K.code + " " : "") + (K.title || ""));
   document.querySelectorAll(".rl").forEach(e => e.onclick = () => { readPlay(+e.dataset.n); });
+  if($("vko")) $("vko").onchange = () => { ls.put("chk.vko", $("vko").value); sayLine("안녕하세요. 이 목소리로 읽습니다."); };
+  if($("ven")) $("ven").onchange = () => { ls.put("chk.ven", $("ven").value); sayLine("Hello. I will read with this voice."); };
   readDock();
 }
 function readDock(){
@@ -1155,7 +1221,8 @@ async function readPlay(n){
     if(RD.i >= RD.items.length){ readStop(); RD.i = 0; return; }
     document.querySelectorAll(".rl.now").forEach(e => e.classList.remove("now"));
     const e = $("rl" + RD.i); if(e){ e.classList.add("now"); e.scrollIntoView({ block:"center", behavior:"smooth" }); }
-    sayLine(RD.items[RD.i].text, () => { if(!RD.on) return; RD.i++; setTimeout(step, 450); });
+    const after = () => { if(!RD.on) return; RD.i++; setTimeout(step, 350); };
+    sayLine(RD.items[RD.i].text, after);
   };
   step();
 }
