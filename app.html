@@ -1112,6 +1112,21 @@ function speechText(t, ko){
   return t.replace(/^[,\s]+/, "").replace(/\s*,\s*(,\s*)+/g, ", ").replace(/\s+,/g, ",").replace(/\s+/g, " ").trim();
 }
 /* 한 줄을 한국어 / 영어 덩어리로 나눈다: "Periodontitis는 이 나이에" → [en "Periodontitis"] [ko "는 이 나이에"] */
+/* 목소리가 바뀔 때마다 브라우저 음성은 잠깐 멈춘다. 그래서 바꾸는 횟수를 줄인다.
+   long = 영어 3단어 이상일 때만 영어 음성 · all = 영어는 모두 영어 음성 · ko = 한국어가 있는 줄은 통째로 한국어 음성 */
+const mixMode = () => ls.raw("chk.mix", "long");
+function mergeShort(segs){
+  if(!segs.some(x => x.lang === "ko")) return segs;          // 영어만 있는 줄은 그대로 영어 음성
+  const mode = mixMode();
+  if(mode === "all") return segs;
+  const out = [];
+  segs.forEach(x => {
+    const lang = x.lang === "en" && (mode === "ko" || x.text.trim().split(/\s+/).length < 3) ? "ko" : x.lang;
+    const last = out[out.length - 1];
+    if(last && last.lang === lang) last.text += " " + x.text; else out.push({ lang:lang, text:x.text });
+  });
+  return out;
+}
 function splitLang(text){
   const segs = [];
   const push = (lang, s) => {
@@ -1143,7 +1158,7 @@ function sayLine(text, onEnd){
   speechSynthesis.cancel(); clearInterval(keep);
   keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
   const pieces = [];
-  splitLang(text).forEach(s => chunks(speechText(s.text, s.lang === "ko")).forEach(c => pieces.push({ lang:s.lang, text:c })));
+  mergeShort(splitLang(text)).forEach(s => chunks(speechText(s.text, s.lang === "ko")).forEach(c => pieces.push({ lang:s.lang, text:c })));
   if(!pieces.length){ setTimeout(done, 200); return; }
   let left = pieces.length, total = 0;
   pieces.forEach(p => {
@@ -1178,7 +1193,11 @@ function readStart(){
   {
     const opt = (vs, cur) => vs.map(v => '<option' + (v.name === cur ? " selected" : "") + ">" + esc(v.name) + "</option>").join("");
     const ko = voicesOf("ko"), en = voicesOf("en"), vk = voiceKo(), ve = voiceEn();
-    h += '<p class="note">한국어는 한국어 음성, 영어 단어는 영어 음성으로 나눠 읽습니다. 더 자연스러운 음성이 있으면 골라 보세요 ' +
+    h += '<label>한국어 · 영어가 섞인 줄</label>' + seg("mix", [["long","긴 영어만 영어로"],["all","영어는 모두 영어로"],["ko","한국어로 이어서"]], mixMode()) +
+         '<p class="note">목소리가 바뀔 때마다 휴대폰 음성이 잠깐 멈춥니다. ' +
+         "<b>긴 영어만 영어로</b>(기본) = 3단어 이상 영어 구절만 영어 음성, 짧은 용어는 한국어 음성으로 이어 읽어 끊김이 적습니다. " +
+         "<b>영어는 모두 영어로</b> = 발음은 정확하지만 끊김이 많습니다. <b>한국어로 이어서</b> = 끊김 없이 가장 빠르지만 영어를 한국어식으로 읽습니다.</p>";
+    h += '<p class="note">더 자연스러운 음성이 있으면 골라 보세요 ' +
          "(아이폰: 설정 → 손쉬운 사용 → 읽기 및 말하기 → 음성에서 '향상된' 음성을 내려받으면 여기에 나옵니다).</p>";
     if(ko.length) h += '<label>한국어 음성</label><select id="vko">' + opt(ko, vk && vk.name) + "</select>";
     if(en.length) h += '<label>영어 음성</label><select id="ven">' + opt(en, ve && ve.name) + "</select>";
@@ -1203,6 +1222,7 @@ function readStart(){
   Object.assign(RD, { items:items, i:0, on:false });
   show("케이스 디테일 읽기", (K.code ? K.code + " " : "") + (K.title || ""));
   document.querySelectorAll(".rl").forEach(e => e.onclick = () => { readPlay(+e.dataset.n); });
+  wireSeg((n, v) => { ls.put("chk.mix", v); sayLine("이 나이에 periodontitis는 정상이 아니다. We call this a crossbite."); });
   if($("vko")) $("vko").onchange = () => { ls.put("chk.vko", $("vko").value); sayLine("안녕하세요. 이 목소리로 읽습니다."); };
   if($("ven")) $("ven").onchange = () => { ls.put("chk.ven", $("ven").value); sayLine("Hello. I will read with this voice."); };
   readDock();
