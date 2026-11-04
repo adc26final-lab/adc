@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="light only">
+<meta name="theme-color" content="#E9EDEC">
+<title>섹션 연습</title>
+<style>
+  :root{
+    color-scheme: light only; -webkit-text-size-adjust:100%;
+    --ink:#12212B; --ink-soft:#4A5C66; --paper:#E9EDEC; --card:#FFFFFF;
+    --teal:#0F6E6E; --teal-pale:#DCEAE8; --amber:#C46A16; --amber-pale:#FBEFE0; --red:#A8322A; --rule:#C9D2D2;
+    --serif: Georgia,"Iowan Old Style","Times New Roman",serif;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--paper)}
+  body{color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5; overscroll-behavior-y:none}
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  select,textarea,input{font-family:inherit;font-size:16px;color:inherit}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 20px 40px;padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+  .stage{display:none} .stage.on{display:block}
+  h1{font-size:22px;margin:0 0 4px;font-weight:600;letter-spacing:-.01em}
+  p.lede{margin:0 0 18px;color:var(--ink-soft);font-size:14.5px}
+  h2{font-size:15px;margin:24px 0 8px;font-weight:600;color:var(--ink-soft)}
+  label{display:block;font-size:13px;color:var(--ink-soft);margin:14px 0 5px}
+  select,textarea,input[type=file]{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+  textarea{min-height:110px;font-size:14px}
+  .note{font-size:13px;color:var(--ink-soft);margin-top:10px;line-height:1.5}
+  .hide{display:none!important}
+  .back{font-size:14px;color:var(--teal);padding:4px 0;margin-bottom:10px}
+  .btn{display:block;width:100%;padding:15px;border-radius:3px;background:var(--ink);color:#fff;font-weight:600;text-align:center;margin-top:16px}
+  .btn.ghost{background:none;color:var(--teal);border:1px solid var(--rule);font-weight:500}
+
+  /* 큰 선택 카드 */
+  .entry{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+  .ent{background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--ink);border-radius:3px;padding:16px 14px;text-align:left}
+  .ent.rnd{border-top-color:var(--teal)}
+  .ent .t{font-weight:700;font-size:16.5px}
+  .ent .d{font-size:13px;color:var(--ink-soft);margin-top:4px;line-height:1.4}
+
+  /* 칩 · 세그먼트 */
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{padding:8px 11px;border:1px solid var(--rule);border-radius:20px;background:var(--card);font-size:13.5px;color:var(--ink-soft)}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;padding:10px 4px;border:1px solid var(--rule);border-radius:3px;font-size:13.5px;background:var(--card);color:var(--ink-soft);line-height:1.3}
+  .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  /* 목록 */
+  .part{background:var(--card);border:1px solid var(--rule);border-radius:3px;margin-bottom:8px}
+  .part > .ph{display:flex;align-items:center;gap:10px;padding:13px 14px;width:100%;text-align:left}
+  .part .pt{flex:1;font-weight:600;font-size:15px}
+  .part .pc{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .part .arrow{color:var(--ink-soft);transition:transform .15s}
+  .part.open .arrow{transform:rotate(90deg)}
+  .part .list{display:none;border-top:1px solid var(--rule)}
+  .part.open .list{display:block}
+  .row{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid #EEF1F1;width:100%;text-align:left}
+  .row:last-child{border-bottom:none}
+  .row .cd{font-weight:700;font-size:13.5px;color:var(--teal);width:42px;flex:none;padding-top:1px}
+  .row .tt{flex:1;font-size:14px;line-height:1.4}
+  .row .st{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
+  .row .st .ok{color:var(--teal);font-weight:600}
+
+  /* 섹션 메뉴 */
+  .meta{background:var(--card);border:1px solid var(--rule);padding:11px 13px;font-size:13px;color:var(--ink-soft);border-radius:3px;line-height:1.5}
+  .meta b{color:var(--ink);font-weight:600}
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .mode{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:13px;text-align:left}
+  .mode .t{font-weight:600;font-size:15px}
+  .mode .d{font-size:12.5px;color:var(--ink-soft);margin-top:3px;line-height:1.4}
+  .mode.main{grid-column:1 / -1;border-color:var(--ink);border-width:2px}
+
+  /* 턴 */
+  .turn{border-left:2px solid var(--rule);padding:3px 0 3px 13px;margin-bottom:14px}
+  .turn.dr{border-left-color:var(--teal)}
+  .turn .who{font-size:11.5px;color:var(--ink-soft);font-weight:600;margin-bottom:2px}
+  .turn.dr .who{color:var(--teal)}
+  .turn .en{font-size:16px;line-height:1.5}
+  .turn .ko{font-size:14px;color:var(--ink-soft);margin-top:3px;line-height:1.45}
+  .turn.now{background:var(--card);margin-left:-10px;padding-left:23px;border-left-width:3px;border-radius:0 3px 3px 0}
+  .turn.dim{opacity:.5}
+  .turn.miss .en{background:var(--amber-pale)}
+  .tag{font-size:11px;color:#8A8F98}
+
+  /* 카드 */
+  .one{background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--ink);padding:20px 18px;margin-top:6px;min-height:170px}
+  .one.pt{border-top-color:var(--amber)}
+  .one .who{font-size:11.5px;letter-spacing:.06em;color:var(--ink-soft);margin-bottom:10px}
+  .one .ctx{font-size:13.5px;color:var(--ink-soft);background:var(--paper);padding:8px 10px;border-radius:3px;margin-bottom:12px;line-height:1.45}
+  .one .ko{font-size:17px;line-height:1.55;font-weight:500}
+  .one .en{font-family:var(--serif);font-size:18px;line-height:1.55;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule)}
+  .one .en.veil{filter:blur(7px);user-select:none}
+  .one .src{font-size:12px;color:var(--teal);font-weight:600;margin-bottom:8px}
+  .counter{font-size:13px;color:var(--ink-soft);font-variant-numeric:tabular-nums;margin:12px 0 0;text-align:center}
+  .recbar{display:flex;gap:8px;margin-top:12px}
+  .recbar button{flex:1;padding:11px;border:1px solid var(--rule);border-radius:3px;background:var(--card);font-size:14px;color:var(--teal)}
+  .recbar button.live{background:var(--red);color:#fff;border-color:var(--red)}
+  .recbar button:disabled{opacity:.35}
+
+  /* 결과 · 체크 */
+  .score{font-family:var(--serif);font-size:40px;line-height:1;margin:6px 0 4px}
+  .chk{display:flex;gap:11px;align-items:flex-start;background:var(--card);border:1px solid var(--rule);padding:11px 13px;border-radius:3px;margin-bottom:7px;width:100%;text-align:left;font-size:14.5px;line-height:1.45}
+  .chk .bx{width:20px;height:20px;border:1.5px solid var(--ink-soft);border-radius:3px;flex:none;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff}
+  .chk.on{background:var(--teal-pale);border-color:var(--teal)}
+  .chk.on .bx{background:var(--teal);border-color:var(--teal)}
+  .chk.on .bx::after{content:"✓"}
+
+  .heard{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:11px 13px;margin-top:10px;font-size:15px;line-height:1.5}
+  .heard .lb{font-size:11.5px;color:var(--ink-soft);font-weight:600;margin-bottom:3px}
+  .heard.live{border-color:var(--red)} .heard.live .lb{color:var(--red)}
+  .heard .said{font-family:var(--serif)}
+  .heard .vd{display:inline-block;font-weight:700;font-size:13px;padding:2px 8px;border-radius:10px;margin:8px 6px 0 0}
+  .vd.o{background:var(--teal-pale);color:var(--teal)} .vd.p{background:var(--amber-pale);color:var(--amber)} .vd.x{background:#F6E4E2;color:var(--red)}
+  .heard .fb{font-size:14px;margin-top:6px;line-height:1.45}
+  .heard .fx{font-family:var(--serif);font-size:15.5px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)}
+  .heard .er{color:var(--red);font-size:14px}
+  .dock button.mic{background:var(--teal)}
+  .dock button.live{background:var(--red)}
+  .dock button.pick{outline:3px solid rgba(15,110,110,.35)}
+  .dock button.warn.pick{outline-color:rgba(196,106,22,.4)}
+  #bar{position:fixed;top:0;left:0;right:0;height:3px;background:var(--rule);z-index:50}
+  #barFill{height:100%;width:0%;background:var(--teal);transition:width .3s}
+  .dock{position:fixed;left:0;right:0;bottom:0;background:var(--paper);border-top:1px solid var(--rule);padding:11px 20px calc(11px + env(safe-area-inset-bottom));z-index:45}
+  .dock .in{max-width:640px;margin:0 auto;display:flex;gap:8px}
+  .dock button{flex:1;padding:14px 6px;border-radius:3px;background:var(--ink);color:#fff;font-weight:600;font-size:15px}
+  .dock button.sec{background:var(--card);color:var(--teal);border:1px solid var(--rule);font-weight:500}
+  .dock button.warn{background:var(--amber)}
+  .dock button:disabled{opacity:.4}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="bar"><div id="barFill"></div></div>
+<div class="wrap">
+
+<!-- 홈 -->
+<section id="s-home" class="stage on">
+  <h1>섹션 연습</h1>
+  <p class="lede">A–J 섹션의 짧은 대화로 말하기를 연습합니다. 케이스 공부(study.html)와는 따로 저장됩니다.</p>
+
+  <div id="needData" class="hide">
+    <div class="meta">먼저 섹션 데이터 파일(<b>osce_sections.json</b>)을 넣어 주세요. 한 번만 넣으면 이 폰에 저장됩니다.</div>
+  </div>
+
+  <div id="haveData" class="hide">
+    <div class="entry">
+      <button class="ent" id="goPick"><div class="t">골라서 하기</div><div class="d">파트 → 섹션을 골라 연습</div></button>
+      <button class="ent rnd" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">범위를 정하면 무작위로 출제</div></button>
+    </div>
+    <p class="note" id="sumLine"></p>
+
+    <label for="rate">읽는 속도</label>
+    <select id="rate">
+      <option value="0.85">느리게</option>
+      <option value="1">보통</option>
+      <option value="1.15">빠르게</option>
+      <option value="1.3">아주 빠르게</option>
+    </select>
+    <label for="engine">정답 음성 (한→영 확인할 때)</label>
+    <select id="engine">
+      <option value="tts">브라우저 기본 — 무료</option>
+      <option value="11">ElevenLabs — 공부 페이지에서 설정한 키 · 목소리 사용</option>
+    </select>
+    <p class="note hide" id="elNote">ElevenLabs 키가 없습니다. 공부 페이지(study.html)에서 먼저 키와 목소리를 설정하세요.</p>
+
+    <label for="sttSel">말하기 인식</label>
+    <select id="sttSel">
+      <option value="browser">브라우저 인식 — 무료, 말하는 동안 글자가 보임</option>
+      <option value="scribe">ElevenLabs Scribe — 녹음 후 전송, 더 정확 (크레딧 사용)</option>
+    </select>
+    <label for="gradeSel">Claude 채점</label>
+    <select id="gradeSel">
+      <option value="fast">켜기 — 빠른 모델 (Haiku)</option>
+      <option value="rp">켜기 — 롤플레이 페이지와 같은 모델</option>
+      <option value="off">끄기 — 말한 것만 보여 주고 직접 표시</option>
+    </select>
+    <p class="note" id="aiNote"></p>
+  </div>
+
+  <h2 id="dataHead">섹션 데이터</h2>
+  <label for="pickFile">JSON 파일 고르기</label>
+  <input type="file" id="pickFile" accept=".json,application/json">
+  <p class="note" id="dataInfo"></p>
+  <button class="btn ghost hide" id="resetStats">연습 기록 모두 지우기</button>
+</section>
+
+<!-- 골라서: 섹션 목록 -->
+<section id="s-pick" class="stage">
+  <button class="back" data-home>← 처음으로</button>
+  <h1>골라서 하기</h1>
+  <p class="lede">파트를 눌러 섹션을 고르세요.</p>
+  <div id="parts"></div>
+</section>
+
+<!-- 랜덤 설정 -->
+<section id="s-rand" class="stage">
+  <button class="back" data-home>← 처음으로</button>
+  <h1>랜덤으로 하기</h1>
+  <p class="lede">범위와 방식을 고르고 시작하세요.</p>
+  <label>범위</label>
+  <div class="chips" id="rParts"></div>
+  <label>방식</label>
+  <div class="seg" id="rKind">
+    <button data-v="sec">섹션 하나<br><small>대화 한→영</small></button>
+    <button data-v="dr">Dentist 문장<br><small>카드</small></button>
+    <button data-v="var">변형 문장<br><small>카드</small></button>
+  </div>
+  <label>출제</label>
+  <div class="seg" id="rWeight">
+    <button data-v="all">고르게</button>
+    <button data-v="weak">놓친 것 위주</button>
+    <button data-v="new">안 해본 것 먼저</button>
+  </div>
+  <p class="note" id="rInfo"></p>
+  <button class="btn" id="rStart">시작</button>
+</section>
+
+<!-- 섹션 메뉴 -->
+<section id="s-sec" class="stage">
+  <button class="back" id="secBack">← 목록</button>
+  <h1 id="secTitle"></h1>
+  <p class="lede" id="secSub"></p>
+  <div class="meta" id="secMeta"></div>
+  <div class="modes" id="secModes"></div>
+</section>
+
+<!-- 실행 -->
+<section id="s-run" class="stage">
+  <h1 id="runTitle"></h1>
+  <p class="lede" id="runHow"></p>
+  <div id="runBody"></div>
+</section>
+
+</div>
+<div class="dock hide" id="dock"><div class="in" id="dockIn"></div></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const tagify = s => esc(s).replace(/\[창작\]/g, '<span class="tag">[창작]</span>');
+const clean = s => String(s||"").replace(/\[창작\]/g,"").replace(/^\s*\([^)]*\)\s*$/,"").replace(/\s+/g," ").trim();
+const shuffle = a => { for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
+
+/* ── 저장 (공부 페이지와 겹치지 않게 "sec." 로 시작) ── */
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+  raw(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+const opt = {
+  get rate(){ return parseFloat(LS.get("sec.rate", 1)) || 1; },
+  set rate(v){ LS.set("sec.rate", v); },
+  get eng(){ return LS.get("sec.engine", "tts"); },
+  set eng(v){ LS.set("sec.engine", v); },
+  get elk(){ return LS.raw("osce.elkey") || ""; },      // 공부 페이지와 같은 키를 그대로 쓴다
+  get elv(){ return LS.raw("osce.elvoice") || ""; },
+  get rParts(){ return LS.get("sec.rparts", null); }, set rParts(v){ LS.set("sec.rparts", v); },
+  get rKind(){ return LS.get("sec.rkind", "sec"); },  set rKind(v){ LS.set("sec.rkind", v); },
+  get rWeight(){ return LS.get("sec.rweight", "all"); }, set rWeight(v){ LS.set("sec.rweight", v); }
+};
+/* 기록: st.sec[code] = {n, last, got, tot}, st.miss[id] = 놓친 횟수, st.seen[id] = 본 횟수, st.chk[code] = [true…] */
+let ST = LS.get("sec.stats", null) || { sec:{}, miss:{}, seen:{}, chk:{} };
+const saveST = () => LS.set("sec.stats", ST);
+
+/* ── 데이터 ── */
+let DATA = null, SECS = [];
+function loadData(){
+  DATA = LS.get("sec.data", null);
+  SECS = [];
+  if(DATA && DATA.parts){
+    DATA.parts.forEach(p => p.sections.forEach(s => { s.part = p.key; s.partTitle = p.title; SECS.push(s); }));
+  }
+}
+const byCode = c => SECS.find(s => s.code === c);
+
+/* ── 음성 ── */
+const canSpeak = "speechSynthesis" in window;
+let vDr = null, vPt = null;
+function voicesReady(){
+  return new Promise(res => {
+    if(!canSpeak) return res([]);
+    const now = speechSynthesis.getVoices();
+    if(now && now.length) return res(now);
+    let done=false; const fin=()=>{ if(!done){done=true;res(speechSynthesis.getVoices()||[]);} };
+    speechSynthesis.onvoiceschanged = fin; setTimeout(fin, 1500);
+  });
+}
+function pickVoices(vs){
+  const en = vs.filter(v => v.lang && v.lang.startsWith("en"));
+  const au = en.filter(v => v.lang.replace("_","-").startsWith("en-AU"));
+  const gb = en.filter(v => v.lang.replace("_","-").startsWith("en-GB"));
+  vDr = au[0] || gb[0] || en[0] || null;
+  vPt = au.find(v => v !== vDr) || gb.find(v => v !== vDr) || en.find(v => v !== vDr && /US|GB|AU/.test(v.lang)) || vDr;
+}
+function chunkText(text, max){
+  max = max || 170; const out = []; let rest = String(text).trim();
+  while(rest.length > max){
+    let cut = -1;
+    for(const m of [". ","? ","! ","; ",", "]){ const at = rest.lastIndexOf(m, max); if(at > cut) cut = at + m.length; }
+    if(cut <= 0) cut = rest.lastIndexOf(" ", max);
+    if(cut <= 0) cut = max;
+    out.push(rest.slice(0,cut).trim()); rest = rest.slice(cut).trim();
+  }
+  if(rest) out.push(rest);
+  return out;
+}
+let keepAlive = null, speakToken = 0;
+function startKeepAlive(){ stopKeepAlive(); keepAlive = setInterval(() => {
+  if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000); }
+function stopKeepAlive(){ if(keepAlive){ clearInterval(keepAlive); keepAlive = null; } }
+function speak(text, who, onEnd){
+  const t = clean(text);
+  const tok = ++speakToken;
+  if(!canSpeak || !t){ setTimeout(() => { if(tok === speakToken) onEnd && onEnd(); }, 300); return; }
+  speechSynthesis.cancel();
+  const parts = chunkText(t); let i = 0;
+  startKeepAlive();
+  const next = () => {
+    if(tok !== speakToken) return;
+    if(i >= parts.length){ stopKeepAlive(); onEnd && onEnd(); return; }
+    const u = new SpeechSynthesisUtterance(parts[i++]);
+    u.lang = "en-AU"; const v = who === "pt" ? vPt : vDr; if(v) u.voice = v;
+    u.rate = opt.rate; u.pitch = who === "pt" ? 1.08 : 1.0;
+    let moved = false; const go = () => { if(!moved){ moved = true; next(); } };
+    u.onend = go; u.onerror = go;
+    speechSynthesis.speak(u);
+    const guess = Math.max(3000, (parts[i-1].length/12)*1000/(opt.rate||1) + 2500);
+    setTimeout(() => { if(!speechSynthesis.speaking) go(); }, guess);
+  };
+  next();
+}
+let elAudio = null, elWarned = false;
+function stopSpeak(){ speakToken++; stopKeepAlive(); if(canSpeak) speechSynthesis.cancel(); if(elAudio){ try{ elAudio.pause(); }catch(e){} } }
+async function elevenPlay(text){
+  const key = opt.elk, vid = opt.elv;
+  if(!key || !vid) throw new Error("ElevenLabs 설정이 비어 있습니다.");
+  const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(vid), {
+    method:"POST", headers:{ "xi-api-key":key, "content-type":"application/json", "accept":"audio/mpeg" },
+    body: JSON.stringify({ text:text, model_id:"eleven_turbo_v2_5", voice_settings:{ stability:0.4, similarity_boost:0.75, style:0.35 } }) });
+  if(!res.ok){
+    if(res.status === 401) throw new Error("ElevenLabs 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("ElevenLabs 크레딧이 부족합니다.");
+    throw new Error("ElevenLabs 오류 " + res.status);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  if(elAudio){ try{ elAudio.pause(); }catch(e){} }
+  elAudio = new Audio(url); elAudio.playbackRate = opt.rate;
+  elAudio.onended = () => URL.revokeObjectURL(url);
+  await elAudio.play();
+}
+async function sayAnswer(text){
+  stopSpeak();
+  if(opt.eng === "11"){
+    try{ await elevenPlay(clean(text)); return; }
+    catch(e){ if(!elWarned){ elWarned = true; alert(e.message + "\n기본 음성으로 계속합니다."); } }
+  }
+  speak(text, "dr");
+}
+
+/* ── 녹음 (따라 읽기) ── */
+const REC = { mr:null, chunks:[], url:null, on:false, stream:null };
+function recMime(){ for(const t of ["audio/mp4","audio/webm;codecs=opus","audio/webm"]) if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; return ""; }
+async function recStart(){
+  if(!navigator.mediaDevices || !window.MediaRecorder) throw new Error("이 브라우저는 녹음을 지원하지 않습니다.");
+  REC.stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+  const mt = recMime();
+  REC.mr = mt ? new MediaRecorder(REC.stream, { mimeType:mt }) : new MediaRecorder(REC.stream);
+  REC.chunks = []; REC.mr.ondataavailable = e => { if(e.data && e.data.size) REC.chunks.push(e.data); };
+  REC.mr.start(); REC.on = true;
+}
+function recStop(){
+  return new Promise(res => {
+    if(!REC.mr || REC.mr.state === "inactive"){ REC.on = false; return res(null); }
+    REC.mr.onstop = () => {
+      REC.on = false;
+      if(REC.stream){ REC.stream.getTracks().forEach(t => t.stop()); REC.stream = null; }
+      if(REC.url) URL.revokeObjectURL(REC.url);
+      REC.url = URL.createObjectURL(new Blob(REC.chunks, { type: REC.chunks[0] ? REC.chunks[0].type : "audio/mp4" }));
+      res(true);
+    };
+    try{ REC.mr.stop(); }catch(e){ REC.on = false; res(null); }
+  });
+}
+function recBar(){ return '<div class="recbar"><button id="recBtn">● 내 목소리 녹음</button><button id="recPlay"'+(REC.url?"":" disabled")+'>내 목소리 듣기</button></div>'; }
+function wireRec(){
+  const b = $("recBtn"), pb = $("recPlay"); if(!b) return;
+  b.onclick = async () => {
+    if(REC.on){ b.disabled = true; await recStop(); b.disabled = false; b.classList.remove("live"); b.textContent = "● 내 목소리 녹음"; pb.disabled = false; return; }
+    try{ stopSpeak(); await recStart(); b.classList.add("live"); b.textContent = "■ 녹음 중 — 누르면 정지"; }
+    catch(e){ alert(e.message || "녹음을 시작할 수 없습니다."); }
+  };
+  pb.onclick = () => { if(REC.url){ stopSpeak(); new Audio(REC.url).play().catch(()=>{}); } };
+}
+function dropRec(){ if(REC.on) recStop(); if(REC.url){ URL.revokeObjectURL(REC.url); REC.url = null; } }
+
+/* ── 말하기 인식 · Claude 채점 (키는 롤플레이 페이지와 같은 것을 쓴다) ── */
+const FAST_MODEL = "claude-haiku-4-5-20251001";
+const AI = {
+  get key(){ return LS.raw("osce.key") || ""; },
+  get rpModel(){ return LS.raw("osce.model") || "claude-sonnet-5"; },
+  get srl(){ return LS.raw("osce.srlang") || "en-AU"; },
+  get stt(){ const v = LS.get("sec.stt", null); return v || (LS.raw("osce.stt") === "scribe" ? "scribe" : "browser"); },
+  set stt(v){ LS.set("sec.stt", v); },
+  get grade(){ return LS.get("sec.grade", "fast"); },
+  set grade(v){ LS.set("sec.grade", v); },
+  get model(){ return AI.grade === "rp" ? AI.rpModel : FAST_MODEL; },
+  get on(){ return AI.grade !== "off" && !!AI.key; }
+};
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const canMic = () => AI.stt === "scribe" ? !!(navigator.mediaDevices && window.MediaRecorder) : !!SR;
+
+function mergeSpeech(acc, part){          // 롤플레이 페이지와 같은 방식 — 크롬이 결과를 겹쳐 보내는 것을 정리
+  const a = (acc || "").trim(), b = (part || "").trim();
+  if(!b) return a; if(!a) return b;
+  const la = a.toLowerCase(), lb = b.toLowerCase();
+  if(lb.startsWith(la)) return b;
+  if(la.endsWith(lb)) return a;
+  const wa = a.split(/\s+/), wb = b.split(/\s+/), max = Math.min(wa.length, wb.length, 8);
+  const norm = x => x.toLowerCase().replace(/[^a-z0-9']/g, "");
+  for(let k = max; k >= 1; k--){
+    let same = true;
+    for(let i = 0; i < k; i++) if(norm(wa[wa.length-k+i]) !== norm(wb[i])){ same = false; break; }
+    if(same) return wa.concat(wb.slice(k)).join(" ");
+  }
+  return a + " " + b;
+}
+
+/* 한 번 말하기의 상태 */
+const A = { phase:"idle", said:"", live:"", res:null, err:"", rec:null, want:false, carry:"", buf:"", restarts:0, mr:null, chunks:[], stream:null, redraw:null };
+function resetAttempt(){ killListen(); Object.assign(A, { phase:"idle", said:"", live:"", res:null, err:"", carry:"", buf:"" }); }
+function killListen(){
+  A.want = false;
+  const r = A.rec; A.rec = null;
+  if(r){ try{ r.onresult = r.onerror = r.onend = null; r.abort(); }catch(e){} }
+  if(A.mr && A.mr.state !== "inactive"){ try{ A.mr.onstop = null; A.mr.stop(); }catch(e){} }
+  if(A.stream){ try{ A.stream.getTracks().forEach(t => t.stop()); }catch(e){} A.stream = null; }
+}
+function startSR(){
+  let r; try{ r = new SR(); }catch(e){ A.err = "음성 인식을 시작할 수 없습니다."; A.phase = "idle"; A.redraw(); return; }
+  r.lang = AI.srl; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
+  A.rec = r;
+  r.onresult = e => {
+    if(A.rec !== r) return;
+    A.restarts = 0;
+    let fin = "", interim = "";
+    for(let i = 0; i < e.results.length; i++){
+      if(e.results[i].isFinal) fin = mergeSpeech(fin, e.results[i][0].transcript);
+      else interim = mergeSpeech(interim, e.results[i][0].transcript);
+    }
+    A.buf = mergeSpeech(A.carry, fin);
+    A.live = mergeSpeech(A.buf, interim);
+    const el = $("liveTxt"); if(el) el.textContent = A.live || "…";
+  };
+  r.onerror = e => {
+    if(A.rec !== r) return;
+    const k = e && e.error;
+    if(k === "aborted" || k === "no-speech") return;
+    A.want = false;
+    A.err = (k === "not-allowed" || k === "service-not-allowed") ? "마이크 권한이 거부됐습니다. 브라우저 설정에서 허용하세요."
+          : k === "network" ? "음성 인식에 인터넷이 필요합니다." : "음성 인식 오류: " + k;
+  };
+  r.onend = () => {
+    if(A.rec !== r) return;
+    A.carry = A.buf = A.live || A.buf;
+    if(A.want && A.restarts++ < 6){ setTimeout(() => { if(A.want) startSR(); }, 150); return; }
+    A.rec = null;
+    if(A.phase === "listen" && !A.want && !A.err) return;   // 정지 버튼이 마무리한다
+    if(A.phase === "listen"){ A.err = A.err || ""; finishListen(); }
+  };
+  try{ r.start(); }catch(e){ A.err = "음성 인식을 시작할 수 없습니다."; A.phase = "idle"; A.redraw(); }
+}
+async function listenStart(item, redraw){
+  stopSpeak(); resetAttempt();
+  A.redraw = redraw; A.item = item;
+  if(!canMic()){ A.err = AI.stt === "scribe" ? "이 브라우저는 녹음을 지원하지 않습니다." : "이 브라우저는 음성 인식을 지원하지 않습니다. 크롬을 쓰세요."; redraw(); return; }
+  A.phase = "listen"; A.want = true;
+  if(AI.stt === "scribe"){
+    if(!opt.elk){ A.phase = "idle"; A.err = "ElevenLabs 키가 없습니다. 브라우저 인식으로 바꾸거나 키를 먼저 넣으세요."; redraw(); return; }
+    try{
+      A.stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+      const mt = recMime();
+      A.mr = mt ? new MediaRecorder(A.stream, { mimeType:mt }) : new MediaRecorder(A.stream);
+      A.chunks = []; A.mr.ondataavailable = e => { if(e.data && e.data.size) A.chunks.push(e.data); };
+      A.mr.start();
+    }catch(e){ A.phase = "idle"; A.err = "마이크를 쓸 수 없습니다. 권한을 확인하세요."; }
+    redraw(); return;
+  }
+  redraw();
+  startSR();
+}
+async function listenStop(){
+  if(A.phase !== "listen") return;
+  A.want = false;
+  if(AI.stt === "scribe"){
+    const blob = await new Promise(res => {
+      const mr = A.mr; if(!mr || mr.state === "inactive") return res(null);
+      let done = false; const fin = () => { if(done) return; done = true;
+        res(A.chunks.length ? new Blob(A.chunks, { type:A.chunks[0].type || "audio/webm" }) : null); };
+      mr.onstop = fin; setTimeout(fin, 2000); try{ mr.stop(); }catch(e){ fin(); }
+    });
+    if(A.stream){ A.stream.getTracks().forEach(t => t.stop()); A.stream = null; }
+    if(!blob || blob.size < 1200){ A.phase = "idle"; A.err = "녹음된 소리가 없습니다. 다시 말해 보세요."; A.redraw(); return; }
+    A.phase = "busy"; A.busyMsg = "받아쓰는 중…"; A.redraw();
+    try{ A.live = await scribeText(blob); }
+    catch(e){ A.phase = "idle"; A.err = e.message; A.redraw(); return; }
+    return finishListen();
+  }
+  const r = A.rec;
+  if(r){
+    await new Promise(res => { const prev = r.onend; r.onend = () => { try{ prev && prev(); }catch(e){} res(); }; try{ r.stop(); }catch(e){ res(); } setTimeout(res, 1500); });
+  }
+  A.rec = null;
+  finishListen();
+}
+async function scribeText(blob){
+  let lastErr = "";
+  for(const model of ["scribe_v2", "scribe_v1"]){
+    const fd = new FormData();
+    fd.append("file", blob, "turn.webm"); fd.append("model_id", model); fd.append("language_code", "en");
+    let res;
+    try{ res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method:"POST", headers:{ "xi-api-key":opt.elk }, body:fd }); }
+    catch(e){ throw new Error("받아쓰기 서버에 닿지 못했습니다."); }
+    if(res.ok){ const j = await res.json(); return (j && j.text ? j.text : "").trim(); }
+    if(res.status === 401) throw new Error("ElevenLabs 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("ElevenLabs 크레딧이 부족합니다.");
+    try{ const j = await res.json(); lastErr = (j.detail && (j.detail.message || j.detail)) || ""; }catch(e){}
+    if(res.status !== 400 && res.status !== 404 && res.status !== 422) throw new Error("받아쓰기 오류 " + res.status);
+  }
+  throw new Error("받아쓰기 오류" + (lastErr ? " — " + lastErr : ""));
+}
+async function finishListen(){
+  const said = (A.live || A.buf || "").replace(/\s+/g, " ").trim();
+  killListen();
+  if(!said){ A.phase = "idle"; A.err = A.err || "말을 알아듣지 못했습니다. 다시 말해 보세요."; A.redraw(); return; }
+  A.said = said; A.err = "";
+  if(AI.on){
+    A.phase = "busy"; A.busyMsg = "Claude 채점 중…"; A.redraw();
+    try{ A.res = await gradeLine(A.item, said); }
+    catch(e){ A.res = null; A.err = "채점 실패: " + e.message; }
+  }
+  A.phase = "done";
+  if(A.onDone) A.onDone();
+  A.redraw();
+  sayAnswer(A.item.en);
+}
+
+const GRADE_SYS = [
+  "You grade one spoken line in ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
+  "The candidate is a Korean dentist. They see the Korean meaning of the dentist's line and must say it in English to the patient.",
+  "Compare the candidate's words with the model answer. The candidate's words come from speech recognition:",
+  "ignore recognition errors, missing punctuation, filler words, and small grammar slips that do not change the meaning.",
+  "Different wording is fine. Judge only whether the patient would get the same message, including key facts",
+  "(numbers, drug names, doses, timings, options, warnings, the reason given).",
+  "Verdict: \"o\" = same message with all key facts. \"p\" = mostly right, but a key detail is missing, wrong or unclear. \"x\" = a different message, or most of it is missing.",
+  "Reply with JSON only, no other text:",
+  "{\"v\":\"o|p|x\",\"note\":\"한국어 한 문장, 40자 이내\",\"miss\":\"빠지거나 틀린 핵심을 한국어로 짧게, 없으면 빈 문자열\",\"fix\":\"...\"}",
+  "fix: only when v is not \"o\". Correct the candidate's own sentence with as few changes as possible, keeping their words where they work.",
+  "Use simple English: each sentence 12 words or fewer, no relative clauses (which/that/who), no dashes, B1 vocabulary. Empty string when v is \"o\"."
+].join("\n");
+async function gradeLine(item, said){
+  const user = (item.ctx ? "Patient just said: " + clean(item.ctx) + "\n" : "") +
+    "Korean meaning: " + item.ko + "\nModel answer: " + clean(item.en) + "\nCandidate said: " + said;
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+  const bell = ac ? setTimeout(() => ac.abort(), 45000) : null;
+  let res;
+  try{
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST", signal: ac ? ac.signal : undefined,
+      headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
+                "anthropic-dangerous-direct-browser-access":"true" },
+      body: JSON.stringify({ model:AI.model, max_tokens:300, system:GRADE_SYS, messages:[{ role:"user", content:user }] })
+    });
+  }catch(e){ throw new Error(e && e.name === "AbortError" ? "응답이 너무 늦습니다." : "네트워크에 닿지 못했습니다."); }
+  finally{ if(bell) clearTimeout(bell); }
+  if(!res.ok){
+    if(res.status === 401) throw new Error("Claude API 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("요청 한도에 걸렸습니다.");
+    if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + AI.model);
+    throw new Error("API 오류 " + res.status);
+  }
+  const data = await res.json();
+  const txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  const m = txt.match(/\{[\s\S]*\}/);
+  if(!m) throw new Error("채점 결과를 읽지 못했습니다.");
+  const j = JSON.parse(m[0]);
+  j.v = ({ o:"o", p:"p", x:"x" })[String(j.v||"").trim().toLowerCase()] || "p";
+  return j;
+}
+const VD = { o:"○ 맞음", p:"△ 거의", x:"× 다시" };
+function attemptHTML(){
+  if(A.phase === "listen")
+    return '<div class="heard live"><div class="lb">'+(AI.stt === "scribe" ? "녹음 중 — 다 말하면 ‘다 말했어요’" : "듣는 중 — 다 말하면 ‘다 말했어요’")+'</div><div class="said" id="liveTxt">'+esc(A.live || "…")+'</div></div>';
+  if(A.phase === "busy")
+    return '<div class="heard"><div class="lb">'+esc(A.busyMsg || "처리 중…")+'</div><div class="said">'+esc(A.said || A.live || "")+'</div></div>';
+  if(A.phase === "done"){
+    let h = '<div class="heard"><div class="lb">내가 말한 것</div><div class="said">'+esc(A.said)+'</div>';
+    if(A.res){
+      h += '<span class="vd '+A.res.v+'">'+VD[A.res.v]+'</span>' +
+           (A.res.note ? '<div class="fb">'+esc(A.res.note)+'</div>' : "") +
+           (A.res.miss ? '<div class="fb"><b>빠진 것:</b> '+esc(A.res.miss)+'</div>' : "") +
+           (A.res.fix ? '<div class="fx">'+esc(A.res.fix)+'</div>' : "");
+    }else if(A.err){ h += '<div class="er" style="margin-top:6px">'+esc(A.err)+'</div>'; }
+    return h + '</div>';
+  }
+  return A.err ? '<div class="heard"><div class="er">'+esc(A.err)+'</div></div>' : "";
+}
+/* 내 차례 하단 버튼. reveal: 정답만 보기, mark(v): 기록 */
+function attemptDock(item, veiled, quit, reveal, mark){
+  if(A.phase === "listen") return [{ label:"취소", cls:"sec", go:() => { resetAttempt(); A.redraw(); } },
+                                   { label:"■ 다 말했어요", cls:"live", go:listenStop }];
+  if(A.phase === "busy") return [{ label:A.busyMsg || "처리 중…", off:true, go:() => {} }];
+  const mic = { label:A.phase === "done" ? "🎤 다시" : "🎤 말하기", cls:"mic", off:!canMic(), go:() => listenStart(item, A.redraw) };
+  if(veiled && A.phase !== "done") return [{ label:"그만", cls:"sec", go:quit }, { label:"정답 보기", cls:"sec", go:reveal }, mic];
+  const rec = A.res ? (A.res.v === "x" ? 0 : 1) : null;
+  return [ A.phase === "done" ? mic : { label:"다시 듣기", cls:"sec", go:() => sayAnswer(item.en) },
+           { label:"놓침", cls:"warn" + (rec === 0 ? " pick" : ""), go:() => mark(0) },
+           { label:"말했음", cls: rec === 1 ? "pick" : "", go:() => mark(1) } ];
+}
+function noteAttempt(id){            // 채점 결과를 놓친 것 위주 랜덤에 반영
+  if(A.res && A.res.v === "p") ST.miss[id] = (ST.miss[id]||0) + 0.5;
+}
+
+/* ── 화면 전환 ── */
+const R = {};            // 실행 상태
+let FROM = "pick";       // 섹션 메뉴에서 돌아갈 곳
+function show(id){
+  stopSpeak(); resetAttempt();
+  document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
+  $(id).classList.add("on");
+  if(id !== "s-run"){ $("dock").classList.add("hide"); bar(0); }
+  window.scrollTo(0,0);
+}
+function dock(btns){
+  $("dock").classList.remove("hide");
+  $("dockIn").innerHTML = btns.map((b,i) => '<button class="'+(b.cls||"")+'" data-b="'+i+'"'+(b.off?" disabled":"")+">"+esc(b.label)+"</button>").join("");
+  document.querySelectorAll("#dockIn button").forEach(e => e.onclick = () => btns[+e.dataset.b].go());
+}
+const bar = p => { $("barFill").style.width = Math.round(p*100) + "%"; };
+document.querySelectorAll("[data-home]").forEach(b => b.onclick = home);
+
+function fmtDate(ts){ if(!ts) return ""; const d = new Date(ts); return (d.getMonth()+1)+"/"+d.getDate(); }
+function secStat(code){
+  const s = ST.sec[code];
+  if(!s || !s.n) return '<span>아직 안 함</span>';
+  return '<span class="ok">'+s.n+'회</span> · 최근 '+s.got+'/'+s.tot+' · '+fmtDate(s.last);
+}
+
+/* ── 홈 ── */
+function home(){
+  dropRec();
+  show("s-home");
+  const has = SECS.length > 0;
+  $("needData").classList.toggle("hide", has);
+  $("haveData").classList.toggle("hide", !has);
+  $("resetStats").classList.toggle("hide", !has);
+  $("rate").value = String(opt.rate);
+  if(![...$("rate").options].some(o => o.value === $("rate").value)) $("rate").value = "1";
+  $("engine").value = opt.eng;
+  $("elNote").classList.toggle("hide", !(opt.eng === "11" && !(opt.elk && opt.elv)));
+  $("sttSel").value = AI.stt; $("gradeSel").value = AI.grade;
+  $("gradeSel").options[1].textContent = "켜기 — 롤플레이 페이지와 같은 모델 (" + AI.rpModel + ")";
+  const notes = [];
+  if(AI.stt === "browser" && !SR) notes.push("이 브라우저는 음성 인식을 지원하지 않습니다 (크롬 권장).");
+  if(AI.stt === "scribe" && !opt.elk) notes.push("ElevenLabs 키가 없습니다 — 공부 · 롤플레이 페이지에서 넣으세요.");
+  if(AI.grade !== "off") notes.push(AI.key ? "Claude 키: 롤플레이 페이지에 저장된 키를 씁니다 ✓" : "Claude 키가 없습니다 — 롤플레이 페이지(index.html)에서 먼저 넣으세요. 그 전까지는 말한 것만 보여 줍니다.");
+  $("aiNote").textContent = notes.join("  ");
+  if(has){
+    const done = SECS.filter(s => ST.sec[s.code] && ST.sec[s.code].n).length;
+    const turns = SECS.reduce((a,s) => a + s.script.length, 0);
+    $("sumLine").textContent = "섹션 " + SECS.length + "개 · 대사 " + turns + "줄 · 해 본 섹션 " + done + "개";
+    $("dataInfo").textContent = (DATA.title || "섹션 데이터") + " — 저장됨. 새 파일을 고르면 바뀝니다 (연습 기록은 남습니다).";
+    $("dataHead").textContent = "데이터 바꾸기";
+  }else{
+    $("dataInfo").textContent = "";
+    $("dataHead").textContent = "섹션 데이터";
+  }
+}
+$("rate").onchange = e => { opt.rate = parseFloat(e.target.value); };
+$("sttSel").onchange = e => { AI.stt = e.target.value; home(); };
+$("gradeSel").onchange = e => { AI.grade = e.target.value; home(); };
+$("engine").onchange = e => { opt.eng = e.target.value; home(); };
+$("pickFile").onchange = async ev => {
+  const f = ev.target.files && ev.target.files[0]; ev.target.value = "";
+  if(!f) return;
+  let v;
+  try{ v = JSON.parse(await f.text()); }catch(e){ alert("JSON을 읽지 못했습니다."); return; }
+  if(!v || v.kind !== "osce-sections" || !Array.isArray(v.parts)){ alert("섹션 데이터 파일이 아닙니다. osce_sections.json 을 골라 주세요."); return; }
+  if(!LS.set("sec.data", v)){ alert("폰 저장 공간이 부족해서 넣지 못했습니다."); return; }
+  loadData(); home();
+  alert("섹션 " + SECS.length + "개를 넣었습니다.");
+};
+$("resetStats").onclick = () => {
+  if(!confirm("섹션 연습 기록(횟수 · 놓친 문장 · 셀프 체크)을 모두 지울까요?")) return;
+  ST = { sec:{}, miss:{}, seen:{}, chk:{} }; saveST(); home();
+};
+$("goPick").onclick = drawPick;
+$("goRand").onclick = drawRand;
+
+/* ── 골라서 하기 ── */
+let openPart = null;
+function drawPick(){
+  show("s-pick");
+  $("parts").innerHTML = DATA.parts.map(p => {
+    const done = p.sections.filter(s => ST.sec[s.code] && ST.sec[s.code].n).length;
+    return '<div class="part'+(openPart === p.key ? " open" : "")+'" data-p="'+esc(p.key)+'">' +
+      '<button class="ph"><span class="pt">'+esc(p.title)+'</span><span class="pc">'+done+' / '+p.sections.length+'</span><span class="arrow">›</span></button>' +
+      '<div class="list">' + p.sections.map(s =>
+        '<button class="row" data-c="'+esc(s.code)+'"><span class="cd">'+esc(s.code)+'</span>' +
+        '<span class="tt">'+esc(s.title)+'<div class="st">'+secStat(s.code)+'</div></span></button>').join("") +
+      '</div></div>';
+  }).join("");
+  document.querySelectorAll(".part .ph").forEach(b => b.onclick = () => {
+    const el = b.parentElement, k = el.dataset.p;
+    openPart = openPart === k ? null : k;
+    document.querySelectorAll(".part").forEach(x => x.classList.toggle("open", x.dataset.p === openPart));
+  });
+  document.querySelectorAll(".row").forEach(b => b.onclick = () => { FROM = "pick"; openSec(b.dataset.c); });
+}
+
+/* ── 섹션 메뉴 ── */
+const SEC_MODES = [
+  { id:"dialog", t:"한국어 → 영어 대화", d:"환자 대사를 듣고, 내 차례엔 한국어만 보고 영어로 말합니다.", main:true },
+  { id:"listen", t:"듣기", d:"대화 전체를 듣습니다." },
+  { id:"shadow", t:"따라 읽기", d:"Dentist 대사를 한 줄씩 듣고 따라 읽습니다." },
+  { id:"vars",   t:"변형 문장", d:"상황별 문장을 한국어 → 영어로." },
+  { id:"checks", t:"셀프 체크", d:"꼭 말해야 할 것을 확인합니다." }
+];
+function openSec(code){
+  const s = byCode(code); if(!s) return;
+  R.sec = s;
+  show("s-sec");
+  $("secTitle").textContent = s.code + ". " + s.title.split(" / ")[0];
+  $("secSub").textContent = (s.title.split(" / ")[1] || "") + "  ·  " + s.partTitle;
+  const inf = s.info || {};
+  const drN = s.script.filter(t => t.who === "dr").length, ptN = s.script.length - drN;
+  $("secMeta").innerHTML =
+    (inf["목표 시간"] ? '<b>목표 시간</b> '+esc(inf["목표 시간"])+'<br>' : "") +
+    (inf["기본 시나리오"] ? '<b>시나리오</b> '+esc(inf["기본 시나리오"])+'<br>' : "") +
+    '<b>대사</b> Dentist '+drN+'줄 · Patient '+ptN+'줄 · 변형 문장 '+s.variants.length+'개<br>' +
+    '<b>기록</b> '+secStat(s.code);
+  $("secModes").innerHTML = SEC_MODES.map(m =>
+    '<button class="mode'+(m.main?" main":"")+'" data-m="'+m.id+'"'+((m.id==="vars"&&!s.variants.length)||(m.id==="checks"&&!s.checks.length)?" disabled":"")+'>' +
+    '<div class="t">'+esc(m.t)+'</div><div class="d">'+esc(m.d)+'</div></button>').join("");
+  document.querySelectorAll("#secModes .mode").forEach(b => b.onclick = () => runMode(b.dataset.m));
+}
+$("secBack").onclick = () => FROM === "rand" ? drawRand() : drawPick();
+function backToSec(){ dropRec(); if(R.sec) openSec(R.sec.code); else home(); }
+function runMode(id){
+  R.random = false;
+  ({ dialog:runDialog, listen:runListen, shadow:runShadow, vars:() => runDeck(varItems(R.sec), "변형 문장", backToSec), checks:runChecks })[id]();
+}
+function openRun(title, how){
+  show("s-run");
+  $("runTitle").textContent = title;
+  $("runHow").textContent = how || "";
+}
+
+/* ── 듣기 ── */
+function runListen(){
+  const s = R.sec, T = s.script;
+  openRun(s.code + " · 듣기", "흐름만 익히세요. 영어와 한국어를 같이 따라갑니다.");
+  R.i = 0; R.playing = false;
+  const draw = () => {
+    $("runBody").innerHTML = T.map((t,i) =>
+      '<div class="turn '+t.who+(R.playing && i===R.i ? " now" : "")+'" id="t'+i+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+'</div>' +
+      '<div class="en">'+tagify(t.en)+'</div><div class="ko">'+esc(t.ko)+'</div></div>').join("");
+    bar(R.i / T.length);
+    dock([{ label:"섹션으로", cls:"sec", go:backToSec },
+          { label: R.playing ? "■ 정지" : (R.i > 0 && R.i < T.length ? "▶ 이어 듣기" : "▶ 처음부터 듣기"), go: toggle }]);
+  };
+  const step = () => {
+    if(!R.playing) return;
+    if(R.i >= T.length){ R.playing = false; R.i = 0; bar(1); draw(); markSec(s.code, null); return; }
+    draw();
+    const el = $("t"+R.i); if(el) el.scrollIntoView({ block:"center", behavior:"smooth" });
+    speak(T[R.i].en, T[R.i].who, () => { if(!R.playing) return; R.i++; setTimeout(step, 350); });
+  };
+  const toggle = () => {
+    if(R.playing){ R.playing = false; stopSpeak(); draw(); return; }
+    if(R.i >= T.length) R.i = 0;
+    R.playing = true; step();
+  };
+  draw();
+}
+
+/* ── 따라 읽기 ── */
+function runShadow(){
+  const s = R.sec, idx = s.script.map((t,i) => i).filter(i => s.script[i].who === "dr");
+  openRun(s.code + " · 따라 읽기", "한 줄 듣고 똑같이 소리 내어 읽으세요. 녹음해서 비교하면 더 좋습니다.");
+  R.k = 0;
+  const draw = (play) => {
+    const i = idx[R.k], t = s.script[i], prev = s.script[i-1];
+    dropRec();
+    $("runBody").innerHTML =
+      '<div class="one">' + (prev && prev.who === "pt" ? '<div class="ctx">Patient: '+tagify(prev.en)+'</div>' : "") +
+      '<div class="who">DENTIST</div><div class="ko">'+esc(t.ko)+'</div><div class="en">'+tagify(t.en)+'</div></div>' +
+      recBar() + '<p class="counter">'+(R.k+1)+' / '+idx.length+'</p>';
+    wireRec(); bar((R.k+1)/idx.length);
+    dock([{ label:"섹션으로", cls:"sec", go:backToSec },
+          { label:"다시 듣기", cls:"sec", go:() => speak(t.en, "dr") },
+          R.k < idx.length-1 ? { label:"다음 ›", go:() => { R.k++; draw(true); } }
+                             : { label:"끝", go:() => { markSec(s.code, null); backToSec(); } }]);
+    if(play) speak(t.en, "dr");
+  };
+  draw(true);
+}
+
+/* ── 한국어 → 영어 대화 (골라서 · 랜덤 공통) ── */
+function runDialog(onlyMissed){
+  const s = R.sec, T = s.script;
+  const targets = onlyMissed ? onlyMissed : T.map((t,i) => i).filter(i => T[i].who === "dr");
+  openRun(s.code + " · 한국어 → 영어", onlyMissed ? "놓친 줄만 다시 합니다." :
+    "환자 대사는 자동으로 읽어 줍니다. 내 차례엔 한국어를 보고 🎤 말하기를 누른 뒤 영어로 말하세요.");
+  R.i = onlyMissed ? ((T[targets[0]-1] && T[targets[0]-1].who === "pt") ? targets[0]-1 : targets[0]) : 0;
+  R.veil = true; R.res = {}; R.heard = {}; R.targets = targets;
+  resetAttempt();
+  const isTarget = i => targets.includes(i);
+  const itemAt = i => ({ id:s.code+":d"+i, ko:T[i].ko, en:T[i].en, ctx: T[i-1] && T[i-1].who === "pt" ? T[i-1].en : "" });
+  const draw = () => {
+    const html = [];
+    for(let i = 0; i <= Math.min(R.i, T.length-1); i++){
+      const t = T[i], cur = i === R.i;
+      if(onlyMissed && !isTarget(i) && i !== R.i && !(t.who === "pt" && T[i+1] && isTarget(i+1) && i+1 <= R.i)) continue;
+      if(t.who === "dr" && isTarget(i)){
+        if(cur){
+          const veiled = R.veil && A.phase !== "done";
+          html.push('<div class="one" id="cur"><div class="who">DENTIST — 내 차례</div><div class="ko">'+esc(t.ko)+'</div>' +
+                    '<div class="en'+(veiled?" veil":"")+'">'+tagify(t.en)+'</div></div>' + attemptHTML());
+        }else{
+          html.push('<div class="turn dr'+(R.res[i]===0?" miss":"")+'"><div class="who">Dentist'+
+                    (R.res[i]===1?" · ✓":R.res[i]===0?" · 놓침":"")+'</div><div class="en">'+tagify(t.en)+'</div><div class="ko">'+esc(t.ko)+'</div></div>');
+        }
+      }else{
+        html.push('<div class="turn '+t.who+(cur?" now":" dim")+'" '+(cur?'id="cur"':"")+'><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+'</div>' +
+                  '<div class="en">'+tagify(t.en)+'</div><div class="ko">'+esc(t.ko)+'</div></div>');
+      }
+    }
+    $("runBody").innerHTML = html.join("");
+    const c = $("cur"); if(c) c.scrollIntoView({ block:"center", behavior:"smooth" });
+    bar(Object.keys(R.res).length / targets.length);
+    const t = T[R.i];
+    if(t.who === "dr" && isTarget(R.i)){
+      dock(attemptDock(itemAt(R.i), R.veil, quit,
+        () => { R.veil = false; draw(); sayAnswer(t.en); }, mark));
+    }else{
+      dock([{ label:"그만", cls:"sec", go:quit }, { label:"다시 듣기", cls:"sec", go:() => speak(t.en, t.who) }, { label:"다음 ›", go:advance }]);
+    }
+  };
+  A.redraw = draw;
+  const mark = v => {
+    const id = s.code + ":d" + R.i;
+    R.res[R.i] = v;
+    if(A.said) R.heard[R.i] = { said:A.said, res:A.res };
+    ST.seen[id] = (ST.seen[id]||0) + 1;
+    if(v === 0) ST.miss[id] = (ST.miss[id]||0) + 1;
+    else if(ST.miss[id]) ST.miss[id] = Math.max(0, ST.miss[id] - 1);
+    noteAttempt(id);
+    saveST(); advance();
+  };
+  const advance = () => {
+    stopSpeak(); resetAttempt(); A.redraw = draw;
+    let n = R.i + 1;
+    if(onlyMissed){
+      const nt = targets.find(x => x > R.i);
+      if(nt == null) return finish();
+      n = (T[nt-1] && T[nt-1].who === "pt" && nt-1 > R.i) ? nt-1 : nt;
+    }
+    if(n >= T.length) return finish();
+    R.i = n; R.veil = true; draw();
+    const t = T[R.i];
+    if(!(t.who === "dr" && isTarget(R.i))) speak(t.en, t.who);
+  };
+  const quit = () => { stopSpeak(); resetAttempt(); R.random ? drawRand() : backToSec(); };
+  const finish = () => {
+    const got = Object.values(R.res).filter(v => v === 1).length, tot = targets.length;
+    if(!onlyMissed) markSec(s.code, [got, tot]);
+    const missed = targets.filter(i => R.res[i] === 0);
+    openRun(s.code + " · 결과", s.title);
+    const heardLine = i => R.heard[i] ? '<div class="ko" style="margin-top:5px">내가 말한 것: '+esc(R.heard[i].said)+'</div>' +
+        (R.heard[i].res && R.heard[i].res.fix ? '<div class="ko">고친 문장: '+esc(R.heard[i].res.fix)+'</div>' : "") : "";
+    $("runBody").innerHTML =
+      '<div class="score">'+got+' / '+tot+'</div><p class="note" style="margin-top:0">Dentist 대사를 말한 줄 / 전체</p>' +
+      (missed.length ? '<h2>놓친 줄</h2>' + missed.map(i => '<div class="turn dr miss"><div class="who">Dentist</div><div class="en">'+tagify(T[i].en)+'</div><div class="ko">'+esc(T[i].ko)+'</div>'+heardLine(i)+'</div>').join("") : '<h2>놓친 줄 없음 👍</h2>') +
+      (s.checks.length ? '<h2>셀프 체크 — 이 내용을 다 말했나요?</h2>' + checkHTML(s) : "");
+    wireChecks(s);
+    bar(1);
+    const btns = [{ label: R.random ? "그만" : "섹션으로", cls:"sec", go: R.random ? drawRand : backToSec }];
+    if(missed.length) btns.push({ label:"놓친 줄만 다시", cls:"sec", go:() => runDialog(missed) });
+    btns.push(R.random ? { label:"다음 랜덤 ›", go:nextRandom } : { label:"처음부터 다시", go:() => runDialog() });
+    dock(btns);
+  };
+  draw();
+  const t0 = T[R.i];
+  if(!(t0.who === "dr" && isTarget(R.i))) speak(t0.en, t0.who);
+}
+function markSec(code, gt){
+  const o = ST.sec[code] || { n:0 };
+  if(gt){ o.n = (o.n||0) + 1; o.got = gt[0]; o.tot = gt[1]; }
+  else if(!o.n){ o.n = 0; }
+  o.last = Date.now();
+  ST.sec[code] = o; saveST();
+}
+
+/* ── 셀프 체크 ── */
+function checkHTML(s){
+  const st = ST.chk[s.code] || [];
+  return s.checks.map((c,i) => '<button class="chk'+(st[i]?" on":"")+'" data-k="'+i+'"><span class="bx"></span><span>'+esc(c)+'</span></button>').join("");
+}
+function wireChecks(s){
+  document.querySelectorAll(".chk").forEach(b => b.onclick = () => {
+    const st = ST.chk[s.code] || [];
+    st[+b.dataset.k] = !st[+b.dataset.k]; ST.chk[s.code] = st; saveST();
+    b.classList.toggle("on", !!st[+b.dataset.k]);
+  });
+}
+function runChecks(){
+  const s = R.sec;
+  openRun(s.code + " · 셀프 체크", "연습한 뒤, 말한 항목을 눌러 표시하세요.");
+  $("runBody").innerHTML = checkHTML(s);
+  wireChecks(s);
+  dock([{ label:"섹션으로", cls:"sec", go:backToSec },
+        { label:"표시 지우기", cls:"sec", go:() => { ST.chk[s.code] = []; saveST(); runChecks(); } }]);
+}
+
+/* ── 카드 덱 (변형 문장 · Dentist 문장) ── */
+function varItems(s){
+  return s.variants.map((v,i) => ({ id:s.code+":v"+i, code:s.code, head:v.label, ko:v.ko, en:v.en }));
+}
+function drItems(s){
+  return s.script.map((t,i) => t.who !== "dr" ? null : ({ id:s.code+":d"+i, code:s.code,
+    ctx: s.script[i-1] && s.script[i-1].who === "pt" ? s.script[i-1].en : "", ko:t.ko, en:t.en })).filter(Boolean);
+}
+function runDeck(items, title, onBack){
+  if(!items.length){ alert("문제가 없습니다."); return; }
+  R.deck = items.slice(); R.k = 0; R.veil = true; R.got = 0; R.missList = [];
+  openRun(title, "한국어를 보고 🎤 말하기를 누른 뒤 영어로 말하세요.");
+  resetAttempt();
+  const draw = () => {
+    const it = R.deck[R.k];
+    const veiled = R.veil && A.phase !== "done";
+    $("runBody").innerHTML = '<div class="one">' +
+      '<div class="src">'+esc(it.code)+(it.head ? " · "+esc(it.head) : "")+'</div>' +
+      (it.ctx ? '<div class="ctx">Patient: '+tagify(it.ctx)+'</div>' : "") +
+      '<div class="ko">'+esc(it.ko)+'</div><div class="en'+(veiled?" veil":"")+'">'+tagify(it.en)+'</div></div>' +
+      attemptHTML() +
+      '<p class="counter">'+(R.k+1)+' / '+R.deck.length+'  ·  말함 '+R.got+'</p>';
+    bar(R.k / R.deck.length);
+    dock(attemptDock(it, R.veil, end, () => { R.veil = false; draw(); sayAnswer(it.en); }, mark));
+  };
+  A.redraw = draw;
+  const mark = v => {
+    const it = R.deck[R.k];
+    if(A.said) it.heard = { said:A.said, res:A.res };
+    ST.seen[it.id] = (ST.seen[it.id]||0) + 1;
+    if(v){ R.got++; if(ST.miss[it.id]) ST.miss[it.id] = Math.max(0, ST.miss[it.id]-1); }
+    else{
+      ST.miss[it.id] = (ST.miss[it.id]||0) + 1;
+      if(!R.missList.includes(it)) R.missList.push(it);
+      // 놓친 카드는 4장 뒤에 한 번 더 나온다
+      if(!it.again){ const c = Object.assign({}, it, { again:true, heard:null }); R.deck.splice(Math.min(R.deck.length, R.k + 5), 0, c); }
+    }
+    noteAttempt(it.id);
+    saveST();
+    stopSpeak(); resetAttempt(); A.redraw = draw;
+    R.k++; R.veil = true;
+    if(R.k >= R.deck.length) return end();
+    draw();
+  };
+  const end = () => {
+    stopSpeak(); resetAttempt();
+    openRun(title + " · 결과", "");
+    const seen = R.k;
+    $("runBody").innerHTML = '<div class="score">'+R.got+' / '+seen+'</div><p class="note" style="margin-top:0">말한 카드 / 본 카드 (다시 나온 카드 포함)</p>' +
+      (R.missList.length ? '<h2>놓친 문장</h2>' + R.missList.map(it => '<div class="turn dr miss"><div class="who">'+esc(it.code)+(it.head?" · "+esc(it.head):"")+'</div><div class="en">'+tagify(it.en)+'</div><div class="ko">'+esc(it.ko)+'</div>' +
+        (it.heard ? '<div class="ko" style="margin-top:5px">내가 말한 것: '+esc(it.heard.said)+'</div>' + (it.heard.res && it.heard.res.fix ? '<div class="ko">고친 문장: '+esc(it.heard.res.fix)+'</div>' : "") : "") +
+        '</div>').join("") : "");
+    bar(1);
+    const miss = R.missList.map(it => Object.assign({}, it, { again:false, heard:null }));
+    const btns = [{ label:"돌아가기", cls:"sec", go:onBack }];
+    if(miss.length) btns.push({ label:"놓친 것만 다시", go:() => runDeck(shuffle(miss), title, onBack) });
+    dock(btns);
+  };
+  draw();
+}
+
+/* ── 랜덤 ── */
+function drawRand(){
+  show("s-rand");
+  let sel = opt.rParts; if(!sel || !sel.length) sel = DATA.parts.map(p => p.key);
+  $("rParts").innerHTML = '<button class="chip'+(sel.length === DATA.parts.length ? " on" : "")+'" data-p="*">전체</button>' +
+    DATA.parts.map(p => '<button class="chip'+(sel.includes(p.key)?" on":"")+'" data-p="'+esc(p.key)+'">'+esc(p.title.replace(/\s*\([^)]*\)/, ""))+'</button>').join("");
+  document.querySelectorAll("#rParts .chip").forEach(b => b.onclick = () => {
+    let cur = opt.rParts || DATA.parts.map(p => p.key);
+    if(b.dataset.p === "*") cur = cur.length === DATA.parts.length ? [] : DATA.parts.map(p => p.key);
+    else cur = cur.includes(b.dataset.p) ? cur.filter(x => x !== b.dataset.p) : cur.concat(b.dataset.p);
+    opt.rParts = cur; drawRand();
+  });
+  const segs = (id, get, set) => {
+    document.querySelectorAll("#"+id+" button").forEach(b => {
+      b.classList.toggle("on", b.dataset.v === get());
+      b.onclick = () => { set(b.dataset.v); drawRand(); };
+    });
+  };
+  segs("rKind", () => opt.rKind, v => opt.rKind = v);
+  segs("rWeight", () => opt.rWeight, v => opt.rWeight = v);
+  const pool = randPool();
+  const kind = opt.rKind;
+  $("rInfo").textContent = !sel.length ? "범위를 하나 이상 고르세요." :
+    kind === "sec" ? "섹션 " + pool.secs.length + "개 중에서 하나씩 나옵니다. 끝나면 ‘다음 랜덤’으로 이어집니다." :
+    "문장 " + pool.items.length + "개 중에서 20장씩 나옵니다.";
+  $("rStart").disabled = !sel.length;
+  $("rStart").onclick = startRandom;
+}
+function randPool(){
+  const sel = opt.rParts && opt.rParts.length ? opt.rParts : DATA.parts.map(p => p.key);
+  const secs = SECS.filter(s => sel.includes(s.part));
+  const items = opt.rKind === "var" ? secs.flatMap(varItems) : secs.flatMap(drItems);
+  return { secs, items };
+}
+function weightOf(id, kindSec){
+  const w = opt.rWeight;
+  if(w === "weak") return 1 + 3 * (kindSec ? secMiss(id) : (ST.miss[id]||0));
+  if(w === "new") return kindSec ? (ST.sec[id] && ST.sec[id].n ? 0.15 : 1) : (ST.seen[id] ? 0.15 : 1);
+  return 1;
+}
+function secMiss(code){
+  const s = ST.sec[code];
+  return s && s.tot ? (s.tot - s.got) / s.tot * 3 : 0.5;
+}
+function weightedPick(arr, wf, n){
+  const pool = arr.map(x => ({ x, w: Math.max(0.01, wf(x)) })), out = [];
+  while(out.length < n && pool.length){
+    const tot = pool.reduce((a,b) => a + b.w, 0); let r = Math.random() * tot, k = 0;
+    while(k < pool.length - 1 && (r -= pool[k].w) > 0) k++;
+    out.push(pool[k].x); pool.splice(k, 1);
+  }
+  return out;
+}
+let lastRand = [];
+function nextRandom(){
+  const { secs } = randPool();
+  if(!secs.length) return drawRand();
+  let cand = secs.filter(s => !lastRand.includes(s.code));
+  if(!cand.length) cand = secs;
+  const s = weightedPick(cand, x => weightOf(x.code, true), 1)[0];
+  lastRand.push(s.code); lastRand = lastRand.slice(-Math.min(10, Math.floor(secs.length/2)));
+  R.sec = s; R.random = true; FROM = "rand";
+  runDialog();
+}
+function startRandom(){
+  const pool = randPool();
+  if(opt.rKind === "sec") return nextRandom();
+  const pick = weightedPick(pool.items, it => weightOf(it.id, false), 20);
+  R.random = true;
+  runDeck(shuffle(pick), opt.rKind === "var" ? "랜덤 · 변형 문장" : "랜덤 · Dentist 문장", drawRand);
+}
+
+/* ── 시작 ── */
+loadData();
+voicesReady().then(pickVoices);
+home();
+</script>
+</body>
+</html>
