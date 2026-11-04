@@ -118,6 +118,26 @@
   .heard .fb{font-size:14px;margin-top:6px;line-height:1.45}
   .heard .fx{font-family:var(--serif);font-size:15.5px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)}
   .heard .er{color:var(--red);font-size:14px}
+  .clockbox{position:sticky;top:3px;z-index:40;background:var(--paper);padding:8px 0 10px;border-bottom:1px solid var(--rule);margin-bottom:12px}
+  .clockbox .row1{display:flex;align-items:baseline;gap:12px}
+  .clockbox .big{font-family:var(--serif);font-size:44px;font-variant-numeric:tabular-nums;line-height:1}
+  .clockbox .big.warn{color:var(--amber)} .clockbox .big.over{color:var(--red)}
+  .clockbox .tgt{font-size:13.5px;color:var(--ink-soft);line-height:1.4}
+  .tbar{height:6px;background:var(--rule);border-radius:3px;margin-top:9px;overflow:hidden;position:relative}
+  .tbar i{position:absolute;left:0;top:0;bottom:0;background:var(--teal);width:0}
+  .tbar i.warn{background:var(--amber)} .tbar i.over{background:var(--red)}
+  .topic{background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--teal);padding:18px;border-radius:3px}
+  .topic .cd{font-size:12px;font-weight:700;color:var(--teal);letter-spacing:.04em}
+  .topic .en{font-size:19px;font-weight:600;margin-top:4px;line-height:1.35}
+  .topic .ko{font-size:15px;color:var(--ink-soft);margin-top:3px}
+  .topic .sc{font-size:13px;color:var(--ink-soft);margin-top:10px;padding-top:10px;border-top:1px solid var(--rule)}
+  .topic .open{font-size:14px;margin-top:10px;background:var(--amber-pale);padding:8px 10px;border-radius:3px}
+  .judge{font-size:18px;font-weight:700;margin:4px 0 2px}
+  .judge.ok{color:var(--teal)} .judge.bad{color:var(--red)} .judge.warnc{color:var(--amber)}
+  .hist{font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;margin-top:4px}
+  .linkbtn{color:var(--teal);font-size:14px;padding:6px 0}
+  .chk.ai-o .bx{border-color:var(--teal)} .chk .ai{margin-left:auto;font-size:12px;font-weight:700;flex:none}
+  .chk .ai.o{color:var(--teal)} .chk .ai.x{color:var(--red)}
   .dock button.mic{background:var(--teal)}
   .dock button.live{background:var(--red)}
   .dock button.pick{outline:3px solid rgba(15,110,110,.35)}
@@ -205,7 +225,8 @@
   <div class="chips" id="rParts"></div>
   <label>방식</label>
   <div class="seg" id="rKind">
-    <button data-v="sec">섹션 하나<br><small>대화 한→영</small></button>
+    <button data-v="whole">섹션 통으로<br><small>타이머</small></button>
+    <button data-v="sec">섹션 한→영<br><small>한 줄씩</small></button>
     <button data-v="dr">Dentist 문장<br><small>카드</small></button>
     <button data-v="var">변형 문장<br><small>카드</small></button>
   </div>
@@ -278,6 +299,10 @@ function loadData(){
   }
 }
 const byCode = c => SECS.find(s => s.code === c);
+function splitTitle(t){                 // "OAC / Sinus risk / 상악동 …" → 영어 · 한국어
+  const p = String(t||"").split(" / "), k = p.findIndex(x => /[가-힣]/.test(x));
+  return k <= 0 ? [p.join(" / "), ""] : [p.slice(0,k).join(" / "), p.slice(k).join(" / ")];
+}
 
 /* ── 음성 ── */
 const canSpeak = "speechSynthesis" in window;
@@ -433,7 +458,7 @@ function mergeSpeech(acc, part){          // 롤플레이 페이지와 같은 �
 
 /* 한 번 말하기의 상태 */
 const A = { phase:"idle", said:"", live:"", res:null, err:"", rec:null, want:false, carry:"", buf:"", restarts:0, mr:null, chunks:[], stream:null, redraw:null };
-function resetAttempt(){ killListen(); Object.assign(A, { phase:"idle", said:"", live:"", res:null, err:"", carry:"", buf:"" }); }
+function resetAttempt(){ killListen(); Object.assign(A, { phase:"idle", said:"", live:"", res:null, err:"", carry:"", buf:"", onFinish:null, keepBlob:false, blob:null }); }
 function killListen(){
   A.want = false;
   const r = A.rec; A.rec = null;
@@ -468,16 +493,17 @@ function startSR(){
   r.onend = () => {
     if(A.rec !== r) return;
     A.carry = A.buf = A.live || A.buf;
-    if(A.want && A.restarts++ < 6){ setTimeout(() => { if(A.want) startSR(); }, 150); return; }
+    if(A.want && A.restarts++ < (A.onFinish ? 30 : 6)){ setTimeout(() => { if(A.want) startSR(); }, 150); return; }
     A.rec = null;
     if(A.phase === "listen" && !A.want && !A.err) return;   // 정지 버튼이 마무리한다
     if(A.phase === "listen"){ A.err = A.err || ""; finishListen(); }
   };
   try{ r.start(); }catch(e){ A.err = "음성 인식을 시작할 수 없습니다."; A.phase = "idle"; A.redraw(); }
 }
-async function listenStart(item, redraw){
+async function listenStart(item, redraw, extra){
   stopSpeak(); resetAttempt();
   A.redraw = redraw; A.item = item;
+  if(extra) Object.assign(A, extra);
   if(!canMic()){ A.err = AI.stt === "scribe" ? "이 브라우저는 녹음을 지원하지 않습니다." : "이 브라우저는 음성 인식을 지원하지 않습니다. 크롬을 쓰세요."; redraw(); return; }
   A.phase = "listen"; A.want = true;
   if(AI.stt === "scribe"){
@@ -505,6 +531,7 @@ async function listenStop(){
       mr.onstop = fin; setTimeout(fin, 2000); try{ mr.stop(); }catch(e){ fin(); }
     });
     if(A.stream){ A.stream.getTracks().forEach(t => t.stop()); A.stream = null; }
+    if(A.keepBlob) A.blob = blob;
     if(!blob || blob.size < 1200){ A.phase = "idle"; A.err = "녹음된 소리가 없습니다. 다시 말해 보세요."; A.redraw(); return; }
     A.phase = "busy"; A.busyMsg = "받아쓰는 중…"; A.redraw();
     try{ A.live = await scribeText(blob); }
@@ -537,8 +564,11 @@ async function scribeText(blob){
 async function finishListen(){
   const said = (A.live || A.buf || "").replace(/\s+/g, " ").trim();
   killListen();
-  if(!said){ A.phase = "idle"; A.err = A.err || "말을 알아듣지 못했습니다. 다시 말해 보세요."; A.redraw(); return; }
+  if(!said){
+    if(A.onFinish){ const f = A.onFinish; A.onFinish = null; return f(""); }
+    A.phase = "idle"; A.err = A.err || "말을 알아듣지 못했습니다. 다시 말해 보세요."; A.redraw(); return; }
   A.said = said; A.err = "";
+  if(A.onFinish){ const f = A.onFinish; A.onFinish = null; return f(said); }
   if(AI.on){
     A.phase = "busy"; A.busyMsg = "Claude 채점 중…"; A.redraw();
     try{ A.res = await gradeLine(A.item, said); }
@@ -631,6 +661,8 @@ const R = {};            // 실행 상태
 let FROM = "pick";       // 섹션 메뉴에서 돌아갈 곳
 function show(id){
   stopSpeak(); resetAttempt();
+  if(R.W && R.W.timer){ clearInterval(R.W.timer); }
+  if(id !== "s-run") R.W = null;
   document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
   $(id).classList.add("on");
   if(id !== "s-run"){ $("dock").classList.add("hide"); bar(0); }
@@ -646,9 +678,13 @@ document.querySelectorAll("[data-home]").forEach(b => b.onclick = home);
 
 function fmtDate(ts){ if(!ts) return ""; const d = new Date(ts); return (d.getMonth()+1)+"/"+d.getDate(); }
 function secStat(code){
-  const s = ST.sec[code];
-  if(!s || !s.n) return '<span>아직 안 함</span>';
-  return '<span class="ok">'+s.n+'회</span> · 최근 '+s.got+'/'+s.tot+' · '+fmtDate(s.last);
+  const s = ST.sec[code], t = (ST.time || {})[code], out = [];
+  if(t && t.length){ const l = t[t.length-1]; const d = Math.round((l.s - l.t) / l.t * 100);
+    out.push('<span class="'+(Math.abs(d) <= 10 ? "ok" : "")+'">⏱ '+Math.floor(l.s/60)+':'+String(l.s%60).padStart(2,"0")+' / '+Math.floor(l.t/60)+':'+String(Math.round(l.t)%60).padStart(2,"0")+'</span>'); }
+  if(s && s.n) out.push('<span class="ok">한→영 '+s.n+'회</span> · 최근 '+s.got+'/'+s.tot);
+  if(!out.length) return '<span>아직 안 함</span>';
+  const last = Math.max(s && s.last || 0, t && t.length ? t[t.length-1].ts : 0);
+  return out.join(" · ") + ' · ' + fmtDate(last);
 }
 
 /* ── 홈 ── */
@@ -671,7 +707,7 @@ function home(){
   if(AI.grade !== "off") notes.push(AI.key ? "Claude 키: 롤플레이 페이지에 저장된 키를 씁니다 ✓" : "Claude 키가 없습니다 — 롤플레이 페이지(index.html)에서 먼저 넣으세요. 그 전까지는 말한 것만 보여 줍니다.");
   $("aiNote").textContent = notes.join("  ");
   if(has){
-    const done = SECS.filter(s => ST.sec[s.code] && ST.sec[s.code].n).length;
+    const done = SECS.filter(s => (ST.sec[s.code] && ST.sec[s.code].n) || ((ST.time||{})[s.code]||[]).length).length;
     const turns = SECS.reduce((a,s) => a + s.script.length, 0);
     $("sumLine").textContent = "섹션 " + SECS.length + "개 · 대사 " + turns + "줄 · 해 본 섹션 " + done + "개";
     $("dataInfo").textContent = (DATA.title || "섹션 데이터") + " — 저장됨. 새 파일을 고르면 바뀝니다 (연습 기록은 남습니다).";
@@ -697,7 +733,7 @@ $("pickFile").onchange = async ev => {
 };
 $("resetStats").onclick = () => {
   if(!confirm("섹션 연습 기록(횟수 · 놓친 문장 · 셀프 체크)을 모두 지울까요?")) return;
-  ST = { sec:{}, miss:{}, seen:{}, chk:{} }; saveST(); home();
+  ST = { sec:{}, miss:{}, seen:{}, chk:{}, time:{} }; saveST(); home();
 };
 $("goPick").onclick = drawPick;
 $("goRand").onclick = drawRand;
@@ -707,7 +743,7 @@ let openPart = null;
 function drawPick(){
   show("s-pick");
   $("parts").innerHTML = DATA.parts.map(p => {
-    const done = p.sections.filter(s => ST.sec[s.code] && ST.sec[s.code].n).length;
+    const done = p.sections.filter(s => (ST.sec[s.code] && ST.sec[s.code].n) || ((ST.time||{})[s.code]||[]).length).length;
     return '<div class="part'+(openPart === p.key ? " open" : "")+'" data-p="'+esc(p.key)+'">' +
       '<button class="ph"><span class="pt">'+esc(p.title)+'</span><span class="pc">'+done+' / '+p.sections.length+'</span><span class="arrow">›</span></button>' +
       '<div class="list">' + p.sections.map(s =>
@@ -725,7 +761,8 @@ function drawPick(){
 
 /* ── 섹션 메뉴 ── */
 const SEC_MODES = [
-  { id:"dialog", t:"한국어 → 영어 대화", d:"환자 대사를 듣고, 내 차례엔 한국어만 보고 영어로 말합니다.", main:true },
+  { id:"whole",  t:"통으로 말하기 (타이머)", d:"주제만 보고 섹션 전체를 목표 시간 안에 말합니다.", main:true },
+  { id:"dialog", t:"한국어 → 영어 대화", d:"환자 대사를 듣고, 내 차례엔 한국어만 보고 영어로 말합니다." },
   { id:"listen", t:"듣기", d:"대화 전체를 듣습니다." },
   { id:"shadow", t:"따라 읽기", d:"Dentist 대사를 한 줄씩 듣고 따라 읽습니다." },
   { id:"vars",   t:"변형 문장", d:"상황별 문장을 한국어 → 영어로." },
@@ -735,8 +772,9 @@ function openSec(code){
   const s = byCode(code); if(!s) return;
   R.sec = s;
   show("s-sec");
-  $("secTitle").textContent = s.code + ". " + s.title.split(" / ")[0];
-  $("secSub").textContent = (s.title.split(" / ")[1] || "") + "  ·  " + s.partTitle;
+  const [ten, tko] = splitTitle(s.title);
+  $("secTitle").textContent = s.code + ". " + ten;
+  $("secSub").textContent = (tko ? tko + "  ·  " : "") + s.partTitle;
   const inf = s.info || {};
   const drN = s.script.filter(t => t.who === "dr").length, ptN = s.script.length - drN;
   $("secMeta").innerHTML =
@@ -753,7 +791,7 @@ $("secBack").onclick = () => FROM === "rand" ? drawRand() : drawPick();
 function backToSec(){ dropRec(); if(R.sec) openSec(R.sec.code); else home(); }
 function runMode(id){
   R.random = false;
-  ({ dialog:runDialog, listen:runListen, shadow:runShadow, vars:() => runDeck(varItems(R.sec), "변형 문장", backToSec), checks:runChecks })[id]();
+  ({ whole:runWhole, dialog:runDialog, listen:runListen, shadow:runShadow, vars:() => runDeck(varItems(R.sec), "변형 문장", backToSec), checks:runChecks })[id]();
 }
 function openRun(title, how){
   show("s-run");
@@ -899,6 +937,207 @@ function runDialog(onlyMissed){
   const t0 = T[R.i];
   if(!(t0.who === "dr" && isTarget(R.i))) speak(t0.en, t0.who);
 }
+/* ── 통으로 말하기 (타이머) ── */
+const wcount = x => clean(x).replace(/\([^)]*\)/g, " ").split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w)).length;
+const mmss = x => { x = Math.max(0, Math.round(x)); return Math.floor(x/60) + ":" + String(x%60).padStart(2,"0"); };
+function judgeTime(sec, tgt){
+  const d = (sec - tgt) / tgt;
+  return Math.abs(d) <= 0.1 ? ["ok","○ 시간 안에 말했어요"] : (d > 0 ? ["bad","길어요"] : ["warnc","짧아요"]);
+}
+function secTimes(s){
+  const m = String((s.info||{})["목표 시간"]||"").match(/(\d+):(\d{2})/);
+  const drW = s.script.filter(t => t.who === "dr").reduce((a,t) => a + wcount(t.en), 0);
+  const ptW = s.script.filter(t => t.who === "pt").reduce((a,t) => a + wcount(t.en), 0);
+  const total = m ? (+m[1])*60 + (+m[2]) : Math.round((drW + ptW) / 2);   // 120 wpm = 초당 2단어
+  const mine = Math.max(15, Math.round(total - ptW / 2));                   // 환자 대사 몫을 뺀 내 시간
+  return { total, mine, drW, ptW };
+}
+const WOPT = {
+  get pt(){ return LS.get("sec.wpt", "skip"); }, set pt(v){ LS.set("sec.wpt", v); },
+  get hint(){ return LS.get("sec.whint", false); }, set hint(v){ LS.set("sec.whint", v); }
+};
+function runWhole(){
+  const s = R.sec, tm = secTimes(s);
+  const tgt = () => WOPT.pt === "skip" ? tm.mine : tm.total;
+  openRun(s.code + " · 통으로 말하기", "주제만 보고 이 섹션에서 Dentist가 할 말을 처음부터 끝까지 말하세요. 시작을 누르면 시계가 갑니다.");
+  resetAttempt();
+  const W = { state:"ready", t0:0, sec:0, timer:null };
+  R.W = W;
+  const open1 = s.script[0] && s.script[0].who === "pt" ? s.script[0] : null;
+  const topic = () => {
+    const [en, ko] = splitTitle(s.title);
+    return '<div class="topic"><div class="cd">'+esc(s.code)+' · '+esc(s.partTitle)+'</div>' +
+      '<div class="en">'+esc(en)+'</div>'+(ko ? '<div class="ko">'+esc(ko)+'</div>' : "") +
+      ((s.info||{})["기본 시나리오"] ? '<div class="sc">시나리오: '+esc(s.info["기본 시나리오"])+'</div>' : "") +
+      (open1 ? '<div class="open"><b>Patient:</b> '+tagify(open1.en)+'</div>' : "") +
+      '</div>';
+  };
+  const clock = () => {
+    const t = tgt(), r = W.sec / t;
+    const cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
+    return '<div class="clockbox"><div class="row1"><div class="big '+cls+'" id="wBig">'+mmss(W.sec)+'</div>' +
+      '<div class="tgt">목표 <b>'+mmss(t)+'</b> ('+(WOPT.pt === "skip" ? "내 몫" : "환자 포함")+')<br>±10% = '+mmss(t*0.9)+'–'+mmss(t*1.1)+'</div></div>' +
+      '<div class="tbar"><i id="wBar" class="'+cls+'" style="width:'+Math.min(100, r/1.1*100)+'%"></i></div></div>';
+  };
+  const hints = () => !s.checks.length ? "" :
+    '<button class="linkbtn" id="wHintBtn">'+(WOPT.hint ? "▾ 꼭 말할 것 숨기기" : "▸ 꼭 말할 것 보기 (힌트)")+'</button>' +
+    (WOPT.hint ? '<ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+s.checks.map(c => '<li>'+esc(c)+'</li>').join("")+'</ul>' : "");
+  const settings = () =>
+    '<label>환자 대사 시간</label><div class="seg" id="wPt">' +
+    '<button data-v="skip" class="'+(WOPT.pt==="skip"?"on":"")+'">빼고 재기<br><small>내 몫 '+mmss(tm.mine)+'</small></button>' +
+    '<button data-v="incl" class="'+(WOPT.pt==="incl"?"on":"")+'">포함해서 재기<br><small>섹션 '+mmss(tm.total)+'</small></button></div>' +
+    '<p class="note">'+(canMic() ? ("말하는 동안 "+(AI.stt === "scribe" ? "녹음해서 끝난 뒤 받아씁니다" : "받아 적습니다")+(AI.on ? ". 끝나면 Claude가 꼭 말할 것을 짚어 줍니다." : ".")) : "이 브라우저는 음성 인식이 안 돼서 시간만 잽니다.")+'</p>';
+  const draw = () => {
+    let h = clock();
+    if(W.state === "ready"){
+      h += topic() + hints() + settings();
+    }else if(W.state === "run"){
+      h += topic() + hints() +
+        (canMic() ? '<div class="heard live"><div class="lb">'+(AI.stt === "scribe" ? "녹음 중" : "듣는 중")+'</div><div class="said" id="liveTxt">'+esc(A.live || "…")+'</div></div>' : "");
+    }
+    $("runBody").innerHTML = h;
+    const hb = $("wHintBtn"); if(hb) hb.onclick = () => { WOPT.hint = !WOPT.hint; draw(); };
+    document.querySelectorAll("#wPt button").forEach(b => b.onclick = () => { WOPT.pt = b.dataset.v; draw(); });
+    if(W.state === "ready") dock([{ label:"그만", cls:"sec", go:quit }, { label:"▶ 시작", go:start }]);
+    else if(W.state === "run") dock([{ label:"취소", cls:"sec", go:cancel }, { label:"■ 끝", cls:"live", go:stop }]);
+  };
+  const tick = () => {
+    W.sec = (Date.now() - W.t0) / 1000;
+    const t = tgt(), r = W.sec / t, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
+    const b = $("wBig"); if(b){ b.textContent = mmss(W.sec); b.className = "big " + cls; }
+    const i = $("wBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
+    bar(Math.min(1, r));
+  };
+  const start = () => {
+    stopSpeak(); resetAttempt();
+    W.state = "run"; W.t0 = Date.now(); W.sec = 0;
+    W.timer = setInterval(tick, 200);
+    draw();
+    if(canMic()){
+      const onFinish = said => {
+        if(W.state === "run"){            // 인식이 도중에 멈췄다 — 시계는 계속 간다
+          W.early = said; W.micErr = A.err || "음성 인식이 멈췄습니다. 시간은 계속 잽니다.";
+          A.phase = "idle";
+          const el = $("liveTxt"); if(el) el.textContent = (said ? said + "  " : "") + "— " + W.micErr;
+          return;
+        }
+        result(said);
+      };
+      listenStart({ ko:"", en:"" }, draw, { keepBlob:true, onFinish:onFinish });
+    }
+  };
+  const cancel = () => { clearInterval(W.timer); resetAttempt(); W.state = "ready"; W.sec = 0; draw(); };
+  const stop = () => {
+    clearInterval(W.timer); tick();
+    W.state = "busy";
+    if(canMic() && A.phase === "listen"){
+      $("runBody").innerHTML = clock() + '<div class="heard"><div class="lb">'+(AI.stt === "scribe" ? "받아쓰는 중…" : "마무리 중…")+'</div></div>';
+      dock([{ label:"처리 중…", off:true, go:() => {} }]);
+      A.redraw = () => {
+        if(A.phase === "busy") $("runBody").innerHTML = clock() + '<div class="heard"><div class="lb">'+esc(A.busyMsg||"처리 중…")+'</div></div>';
+        else if(A.phase === "idle" && A.err && W.state === "busy") result("");
+      };
+      listenStop();
+    }else result(W.early || "");
+  };
+  const quit = () => { clearInterval(W.timer); stopSpeak(); resetAttempt(); R.random ? drawRand() : backToSec(); };
+  const result = async (said) => {
+    W.state = "done";
+    const t = tgt(), [jc, jt] = judgeTime(W.sec, t);
+    const dev = Math.round((W.sec - t) / t * 100);
+    const words = said ? said.split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w)).length : 0;
+    const blob = A.blob; const err = A.err || W.micErr;
+    ST.time = ST.time || {};
+    const rec = { s:Math.round(W.sec), t:t, ts:Date.now(), w:words };
+    const list = (ST.time[s.code] = (ST.time[s.code] || []).concat(rec).slice(-10));
+    saveST();
+    let cov = null;
+    const render = () => {
+      const past = list.slice(-6, -1);
+      let h = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(W.sec)+'</div>' +
+        '<div class="tgt">목표 <b>'+mmss(t)+'</b> ('+(WOPT.pt === "skip" ? "내 몫" : "환자 포함")+')<br>'+(dev>0?"+":"")+dev+'%</div></div></div>' +
+        '<div class="judge '+jc+'">'+jt+'</div>' +
+        (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s)).join(" · ")+'</div>' : "") +
+        (said ? '<div class="heard"><div class="lb">내가 말한 것 · '+words+'단어 · '+Math.round(words / Math.max(1, W.sec) * 60)+' wpm (Dentist 대본 '+tm.drW+'단어)</div><div class="said">'+esc(said)+'</div></div>' :
+          (err ? '<div class="heard"><div class="er">'+esc(err)+'</div></div>' : "")) +
+        (blob ? '<div class="recbar"><button id="wPlay">내 목소리 듣기</button></div>' : "");
+      if(cov === "busy") h += '<div class="heard"><div class="lb">Claude가 꼭 말할 것을 확인하는 중…</div></div>';
+      else if(cov && cov.err) h += '<div class="heard"><div class="er">채점 실패: '+esc(cov.err)+'</div></div>';
+      else if(cov && cov.note) h += '<div class="heard"><div class="lb">Claude 평가 · 꼭 말할 것 '+cov.n+' / '+s.checks.length+'</div><div class="fb">'+esc(cov.note)+'</div>'+(cov.miss ? '<div class="fb"><b>빠진 것:</b> '+esc(cov.miss)+'</div>' : "")+'</div>';
+      if(s.checks.length){
+        h += '<h2>셀프 체크'+(cov && cov.hit ? " — Claude 판정을 표시해 뒀어요. 눌러서 고칠 수 있습니다" : " — 말한 항목을 누르세요")+'</h2>';
+        const st = ST.chk[s.code] || [];
+        h += s.checks.map((c,i) => '<button class="chk'+(st[i]?" on":"")+'" data-k="'+i+'"><span class="bx"></span><span>'+esc(c)+'</span>' +
+          (cov && cov.hit ? '<span class="ai '+(cov.hit[i]?"o":"x")+'">'+(cov.hit[i]?"말함":"빠짐")+'</span>' : "")+'</button>').join("");
+      }
+      h += '<h2>모범 대본</h2>' + s.script.map(x => '<div class="turn '+x.who+(x.who==="pt"?" dim":"")+'"><div class="who">'+(x.who==="dr"?"Dentist":"Patient")+'</div><div class="en">'+tagify(x.en)+'</div><div class="ko">'+esc(x.ko)+'</div></div>').join("");
+      $("runBody").innerHTML = h;
+      wireChecks(s);
+      const pb = $("wPlay"); if(pb) pb.onclick = () => { stopSpeak(); if(!W.url) W.url = URL.createObjectURL(blob); new Audio(W.url).play().catch(()=>{}); };
+      bar(1);
+      const btns = [{ label: R.random ? "그만" : "섹션으로", cls:"sec", go: R.random ? drawRand : backToSec },
+                    { label:"다시", cls:"sec", go:() => runWhole() }];
+      if(R.random) btns.push({ label:"다음 랜덤 ›", go:nextRandom });
+      else btns.push({ label:"모범 대본 듣기", go:() => playScript(s) });
+      dock(btns);
+    };
+    openRun(s.code + " · 결과", s.title);
+    if(said && AI.on && s.checks.length){ cov = "busy"; render();
+      try{
+        const j = await gradeWhole(s, said);
+        const hit = s.checks.map((_,i) => !!(j.hit && j.hit[i]));
+        cov = { hit, n: hit.filter(Boolean).length, note:j.note || "", miss:j.miss || "" };
+        ST.chk[s.code] = hit; rec.cov = cov.n / s.checks.length; saveST();
+      }catch(e){ cov = { err:e.message }; }
+    }
+    if(!R.W || R.W !== W) return;          // 그사이 다른 화면으로 갔다
+    render();
+  };
+  draw();
+}
+function playScript(s){
+  let i = 0;
+  const next = () => { if(i >= s.script.length) return; const t = s.script[i++]; speak(t.en, t.who, () => setTimeout(next, 300)); };
+  stopSpeak(); next();
+}
+const WHOLE_SYS = [
+  "You review one spoken section in ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
+  "The candidate is a Korean dentist. They saw only the topic and spoke the dentist's part of this section in one go, without the patient.",
+  "Their words come from speech recognition: ignore recognition errors, fillers and small grammar slips.",
+  "You get a numbered checklist of points the dentist must cover (in Korean) and the model dentist script.",
+  "For each checklist point, decide if the candidate clearly covered it. Different wording is fine. Be fair but not generous: a vague hint is not covered.",
+  "Reply with JSON only, no other text:",
+  "{\"hit\":[true,false,...],\"note\":\"한국어 두 문장 이내 — 잘한 점 하나와 고칠 점 하나\",\"miss\":\"가장 중요한 빠진 내용 한국어로 짧게, 없으면 빈 문자열\"}",
+  "hit must have exactly one boolean per checklist point, in order."
+].join("\n");
+async function gradeWhole(s, said){
+  const user = "Topic: " + s.title + "\nChecklist:\n" + s.checks.map((c,i) => (i+1) + ". " + c).join("\n") +
+    "\n\nModel dentist script:\n" + s.script.filter(t => t.who === "dr").map(t => clean(t.en)).join(" ") +
+    "\n\nCandidate said:\n" + said;
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+  const bell = ac ? setTimeout(() => ac.abort(), 60000) : null;
+  let res;
+  try{
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST", signal: ac ? ac.signal : undefined,
+      headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
+                "anthropic-dangerous-direct-browser-access":"true" },
+      body: JSON.stringify({ model:AI.model, max_tokens:500, system:WHOLE_SYS, messages:[{ role:"user", content:user }] })
+    });
+  }catch(e){ throw new Error(e && e.name === "AbortError" ? "응답이 너무 늦습니다." : "네트워크에 닿지 못했습니다."); }
+  finally{ if(bell) clearTimeout(bell); }
+  if(!res.ok){
+    if(res.status === 401) throw new Error("Claude API 키가 거부됐습니다.");
+    if(res.status === 429) throw new Error("요청 한도에 걸렸습니다.");
+    throw new Error("API 오류 " + res.status);
+  }
+  const data = await res.json();
+  const txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  const m = txt.match(/\{[\s\S]*\}/);
+  if(!m) throw new Error("결과를 읽지 못했습니다.");
+  return JSON.parse(m[0]);
+}
+
 function markSec(code, gt){
   const o = ST.sec[code] || { n:0 };
   if(gt){ o.n = (o.n||0) + 1; o.got = gt[0]; o.tot = gt[1]; }
@@ -1012,7 +1251,7 @@ function drawRand(){
   const pool = randPool();
   const kind = opt.rKind;
   $("rInfo").textContent = !sel.length ? "범위를 하나 이상 고르세요." :
-    kind === "sec" ? "섹션 " + pool.secs.length + "개 중에서 하나씩 나옵니다. 끝나면 ‘다음 랜덤’으로 이어집니다." :
+    (kind === "sec" || kind === "whole") ? "섹션 " + pool.secs.length + "개 중에서 하나씩 나옵니다. 끝나면 ‘다음 랜덤’으로 이어집니다." :
     "문장 " + pool.items.length + "개 중에서 20장씩 나옵니다.";
   $("rStart").disabled = !sel.length;
   $("rStart").onclick = startRandom;
@@ -1026,10 +1265,16 @@ function randPool(){
 function weightOf(id, kindSec){
   const w = opt.rWeight;
   if(w === "weak") return 1 + 3 * (kindSec ? secMiss(id) : (ST.miss[id]||0));
-  if(w === "new") return kindSec ? (ST.sec[id] && ST.sec[id].n ? 0.15 : 1) : (ST.seen[id] ? 0.15 : 1);
+  if(w === "new") return kindSec ? ((opt.rKind === "whole" ? ((ST.time||{})[id]||[]).length : (ST.sec[id] && ST.sec[id].n)) ? 0.15 : 1) : (ST.seen[id] ? 0.15 : 1);
   return 1;
 }
 function secMiss(code){
+  if(opt.rKind === "whole"){
+    const t = (ST.time || {})[code];
+    if(!t || !t.length) return 0.5;
+    const last = t[t.length-1];
+    return Math.min(3, Math.abs(last.s - last.t) / last.t * 6 + (last.cov != null ? (1 - last.cov) * 3 : 0));
+  }
   const s = ST.sec[code];
   return s && s.tot ? (s.tot - s.got) / s.tot * 3 : 0.5;
 }
@@ -1051,11 +1296,11 @@ function nextRandom(){
   const s = weightedPick(cand, x => weightOf(x.code, true), 1)[0];
   lastRand.push(s.code); lastRand = lastRand.slice(-Math.min(10, Math.floor(secs.length/2)));
   R.sec = s; R.random = true; FROM = "rand";
-  runDialog();
+  opt.rKind === "whole" ? runWhole() : runDialog();
 }
 function startRandom(){
   const pool = randPool();
-  if(opt.rKind === "sec") return nextRandom();
+  if(opt.rKind === "sec" || opt.rKind === "whole") return nextRandom();
   const pick = weightedPick(pool.items, it => weightOf(it.id, false), 20);
   R.random = true;
   runDeck(shuffle(pick), opt.rKind === "var" ? "랜덤 · 변형 문장" : "랜덤 · Dentist 문장", drawRand);
