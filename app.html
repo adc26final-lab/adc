@@ -140,7 +140,11 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v10 · 확인용 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v10.1 · 확인용 · 과목별/날짜순 목록 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <div class="seg" id="sortSeg" style="margin-bottom:8px">
+    <button data-v="subj">과목별</button>
+    <button data-v="day">강의 날짜순</button>
+  </div>
   <select id="caseSel"></select>
   <p class="stat" id="stat"></p>
   <div class="big4" id="big4">
@@ -473,16 +477,55 @@ function stopAll(){
 }
 
 /* ══════════ 홈 ══════════ */
+/* 과목별 목록 — Nazia 57케이스 합본의 과목 순서. 과목 안에서는 강의 날짜(D 번호) 순서.
+   예전 JSON(Day 묶음)을 넣었어도 코드(D2-3 등)로 과목을 찾는다. */
+const SUBJECTS = ["치주 (Periodontal)", "엔도 · 치통 (Endo / Toothache)", "감염 · 종창 (Infection / Swelling)",
+  "발치 · 외과 · 술후 합병증", "결손치 수복 · 보철 (Replacement / Prostho)", "성인 우식 · 수복",
+  "소아 (Paediatric)", "교정 · 심미 · 발육", "연조직 · 구강점막 (Soft Tissue)"];
+const SUBJ_CODES = [
+  ["D2-3","D13-2","D4-2","D8-1","D17-3","D12-1","D18-4","D18-1","D16-1"],
+  ["D14-1","D17-1","D13-3","D7-1","D8-2","D12-3"],
+  ["D4-4","D5-2","D5-1","D5-3","D12-2"],
+  ["D3-1","D2-4","D14-2","D7-2","D15-3","D3-2","D15-2","D4-3","D18-2"],
+  ["D2-1","D6-1","D10-4","D1-2","D9-1","D9-2","D16-3"],
+  ["D3-3","D9-3","D6-3"],
+  ["D2-2","D4-1","D6-2","D7-3","D10-2","D10-1","D11-3","D15-1","D11-2","D8-3"],
+  ["D1-1","D11-1","D13-1","D17-2"],
+  ["D16-2","D14-3","D18-3","D10-3"]];
+const SUBJ_OF = {}; SUBJ_CODES.forEach((list, k) => list.forEach(c => SUBJ_OF[c] = k));
+function subjOf(m){
+  const mm = (m.moduleName || "").match(/^Nazia (\d)\./);     // 과목별 JSON을 넣은 경우
+  if(mm) return +mm[1] - 1;
+  if(/^nazia_/.test(m.id || "") && SUBJ_OF[m.code] != null) return SUBJ_OF[m.code];
+  return null;
+}
+const dayNums = m => { const k = (m.code || "").match(/\d+/g); return k ? [+k[0], +(k[1]||0)] : [99, 99]; };
+function dayGroup(m){
+  const d = /^D\d/.test(m.code || "") && /^nazia_/.test(m.id || "") ? dayNums(m)[0] : null;
+  if(d == null) return m.moduleName || "";
+  return d <= 6 ? "Nazia Day 1–6" : d <= 12 ? "Nazia D7–12" : "Nazia D13–18";
+}
+const sortMode = () => ls.raw("chk.sort", "subj");
 function loadCases(){
-  METAS = store.idx().slice().sort((a,b) => {   // 분류 순서(order)가 있으면 그것, 없으면 Day 번호
-    if(a.order || b.order) return (a.order||999) - (b.order||999);
-    const k = m => (m.code||"").match(/\d+/g) || [99,99];
-    const x = k(a), y = k(b); return (+x[0] - +y[0]) || (+x[1] - +y[1]);
+  const mode = sortMode();
+  document.querySelectorAll("#sortSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === mode));
+  const byDay = (a,b) => { const x = dayNums(a), y = dayNums(b); return (x[0] - y[0]) || (x[1] - y[1]); };
+  METAS = store.idx().slice().sort((a,b) => {
+    if(mode === "subj"){
+      const sa = subjOf(a), sb = subjOf(b);
+      if(sa != null || sb != null) return (sa == null ? 99 : sa) - (sb == null ? 99 : sb) || byDay(a,b);
+    }
+    if(a.order || b.order) return (a.order||999) - (b.order||999);   // 분류 순서(order)가 있으면 그것, 없으면 Day 번호
+    return byDay(a,b);
   });
-  const opt = (m,i) => '<option value="' + i + '">' + esc((m.cat ? m.cat + " · " : "") + (m.code ? m.code + "  " : "") + (m.title||m.id)) + "</option>";
-  let html = "", grp = null;   // 분류(moduleName)가 바뀔 때마다 묶음 제목
+  const label = m => {
+    if(mode === "subj"){ const k = subjOf(m); if(k != null) return "Nazia " + (k+1) + ". " + SUBJECTS[k]; return m.moduleName || ""; }
+    return dayGroup(m);
+  };
+  const opt = (m,i) => '<option value="' + i + '">' + esc((m.cat && !(mode === "subj" && subjOf(m) != null) ? m.cat + " · " : "") + (m.code ? m.code + "  " : "") + (m.title||m.id)) + "</option>";
+  let html = "", grp = null;   // 묶음 제목이 바뀔 때마다 새 묶음
   METAS.forEach((m,i) => {
-    const g = m.moduleName || "";
+    const g = label(m);
     if(g !== grp){ if(grp !== null && grp !== "") html += "</optgroup>"; if(g) html += '<optgroup label="' + esc(g) + '">'; grp = g; }
     html += opt(m,i);
   });
@@ -1269,6 +1312,7 @@ function playStart(){
 (function(){
   try{ loadCases(); }catch(e){ alert("케이스 목록을 읽지 못했습니다: " + e.message); }
   $("caseSel").onchange = pickCase;
+  document.querySelectorAll("#sortSeg button").forEach(b => b.onclick = () => { ls.put("chk.sort", b.dataset.v); loadCases(); });
   document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     if(!K) return;
     const g = b.dataset.go;
