@@ -187,7 +187,7 @@
     <p class="note" id="voiceNote"></p>
     <label for="engine">정답 음성 (한→영 확인할 때)</label>
     <select id="engine">
-      <option value="tts">브라우저 기본 — 무료</option>
+      <option value="tts">Dentist 목소리 (위에서 고른 호주 음성) — 무료</option>
       <option value="11">ElevenLabs — 공부 페이지에서 설정한 키 · 목소리 사용</option>
     </select>
     <p class="note hide" id="elNote">ElevenLabs 키가 없습니다. 공부 페이지(study.html)에서 먼저 키와 목소리를 설정하세요.</p>
@@ -366,26 +366,64 @@ let keepAlive = null, speakToken = 0;
 function startKeepAlive(){ stopKeepAlive(); keepAlive = setInterval(() => {
   if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000); }
 function stopKeepAlive(){ if(keepAlive){ clearInterval(keepAlive); keepAlive = null; } }
+
+/* ── 첫소리 잘림 방지 ──
+   폰(특히 블루투스)은 소리가 한동안 없으면 오디오 출력을 재운다. 다시 깨는 동안 첫 음절이 잘리므로
+   ① 조용한 소리를 먼저 흘려 출력을 깨우고 ② 직전 음성을 끈 직후엔 잠깐 쉬었다가 시작한다. */
+let AC = null, lastSound = 0;
+const markSound = () => { lastSound = Date.now(); };
+function wakeAudio(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(Ctx){
+      if(!AC) AC = new Ctx();
+      if(AC.state === "suspended") AC.resume().catch(() => {});
+      const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * 0.6), AC.sampleRate);
+      const src = AC.createBufferSource(); src.buffer = buf; src.connect(AC.destination); src.start();
+    }
+  }catch(e){}
+  return new Promise(r => setTimeout(r, 400));
+}
+const isCold = () => Date.now() - lastSound > 2000;
+async function playUrl(url, rate){      // 녹음 · ElevenLabs 파일 재생도 같은 방식으로
+  if(isCold()) await wakeAudio();
+  const a = new Audio(url); if(rate) a.playbackRate = rate;
+  a.onplaying = markSound; a.onended = markSound;
+  await a.play();
+  return a;
+}
 function speak(text, who, onEnd){
   const t = clean(text);
   const tok = ++speakToken;
   if(!canSpeak || !t){ setTimeout(() => { if(tok === speakToken) onEnd && onEnd(); }, 300); return; }
-  speechSynthesis.cancel();
+  const busy = speechSynthesis.speaking || speechSynthesis.pending;
+  if(busy) speechSynthesis.cancel();            // 끄자마자 바로 말하면 첫소리가 먹힌다
+  const v = who === "pt" ? vPt : vDr;
   const parts = chunkText(t); let i = 0;
-  startKeepAlive();
   const next = () => {
     if(tok !== speakToken) return;
-    if(i >= parts.length){ stopKeepAlive(); onEnd && onEnd(); return; }
+    if(i >= parts.length){ markSound(); stopKeepAlive(); onEnd && onEnd(); return; }
     const u = new SpeechSynthesisUtterance(parts[i++]);
-    const v = who === "pt" ? vPt : vDr; if(v){ u.voice = v; u.lang = v.lang; } else u.lang = "en-AU";
+    if(v){ u.voice = v; u.lang = v.lang; } else u.lang = "en-AU";
     u.rate = opt.rate; u.pitch = (who === "pt" && vPt === vDr) ? 1.08 : 1.0;
-    let moved = false; const go = () => { if(!moved){ moved = true; next(); } };
-    u.onend = go; u.onerror = go;
+    let moved = false; const go = () => { if(!moved){ moved = true; markSound(); next(); } };
+    u.onstart = markSound; u.onend = go; u.onerror = go;
     speechSynthesis.speak(u);
     const guess = Math.max(3000, (parts[i-1].length/12)*1000/(opt.rate||1) + 2500);
     setTimeout(() => { if(!speechSynthesis.speaking) go(); }, guess);
   };
-  next();
+  const begin = (cold) => {
+    if(tok !== speakToken) return;
+    startKeepAlive();
+    if(cold){                                     // 음성 엔진도 소리 없는 한 마디로 먼저 깨운다
+      const w = new SpeechSynthesisUtterance(".");
+      w.volume = 0; w.rate = 1; if(v){ w.voice = v; w.lang = v.lang; }
+      speechSynthesis.speak(w);
+    }
+    next();
+  };
+  if(isCold()) wakeAudio().then(() => begin(true));
+  else setTimeout(() => begin(false), busy ? 160 : 0);
 }
 let elAudio = null, elWarned = false;
 function stopSpeak(){ speakToken++; stopKeepAlive(); if(canSpeak) speechSynthesis.cancel(); if(elAudio){ try{ elAudio.pause(); }catch(e){} } }
@@ -402,9 +440,8 @@ async function elevenPlay(text){
   }
   const url = URL.createObjectURL(await res.blob());
   if(elAudio){ try{ elAudio.pause(); }catch(e){} }
-  elAudio = new Audio(url); elAudio.playbackRate = opt.rate;
-  elAudio.onended = () => URL.revokeObjectURL(url);
-  await elAudio.play();
+  elAudio = await playUrl(url, opt.rate);
+  elAudio.onended = () => { markSound(); URL.revokeObjectURL(url); };
 }
 async function sayAnswer(text){
   stopSpeak();
@@ -447,7 +484,7 @@ function wireRec(){
     try{ stopSpeak(); await recStart(); b.classList.add("live"); b.textContent = "■ 녹음 중 — 누르면 정지"; }
     catch(e){ alert(e.message || "녹음을 시작할 수 없습니다."); }
   };
-  pb.onclick = () => { if(REC.url){ stopSpeak(); new Audio(REC.url).play().catch(()=>{}); } };
+  pb.onclick = () => { if(REC.url){ stopSpeak(); playUrl(REC.url).catch(()=>{}); } };
 }
 function dropRec(){ if(REC.on) recStop(); if(REC.url){ URL.revokeObjectURL(REC.url); REC.url = null; } }
 
@@ -1219,7 +1256,7 @@ function runWhole(){
       h += '<h2>모범 대본</h2>' + s.script.map(x => '<div class="turn '+x.who+(x.who==="pt"?" dim":"")+'"><div class="who">'+(x.who==="dr"?"Dentist":"Patient")+'</div><div class="en">'+tagify(x.en)+'</div><div class="ko">'+esc(x.ko)+'</div></div>').join("");
       $("runBody").innerHTML = h;
       wireChecks(s);
-      const pb = $("wPlay"); if(pb) pb.onclick = () => { stopSpeak(); if(!W.url) W.url = URL.createObjectURL(blob); new Audio(W.url).play().catch(()=>{}); };
+      const pb = $("wPlay"); if(pb) pb.onclick = () => { stopSpeak(); if(!W.url) W.url = URL.createObjectURL(blob); playUrl(W.url).catch(()=>{}); };
       bar(1);
       const btns = [{ label: R.random ? "그만" : "섹션으로", cls:"sec", go: R.random ? drawRand : backToSec },
                     { label:"다시", cls:"sec", go:() => runWhole() }];

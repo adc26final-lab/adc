@@ -186,7 +186,7 @@
   <p class="lede">큐카드를 읽고, 환자와 영어로 말하고, 채점표대로 결과를 받습니다.</p>
 
   <div id="compat"></div>
-  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v12 · 롤플레이 · 랜덤 스테이션 · 블록 페이스 · 내가 먼저 인사</p>
+  <p class="note" id="ver" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px;margin:0 0 4px">v11 · 롤플레이 · 블록 페이스 · 내가 먼저 인사</p>
 
 
   <label for="key">Anthropic API 키</label>
@@ -240,7 +240,7 @@
 
   <label for="engine">환자 목소리</label>
   <select id="engine">
-    <option value="tts">브라우저 기본 — 무료</option>
+    <option value="tts">브라우저 음성 (Edge 호주 Natural 우선) — 무료</option>
     <option value="11">ElevenLabs — 크레딧 사용</option>
   </select>
 
@@ -268,8 +268,6 @@
 
   <div class="row">
     <button class="btn" id="go">스테이션 시작</button>
-    <button class="btn ghost" id="goRandom">랜덤 스테이션 — 어떤 케이스인지 모르고 시작</button>
-    <p class="note" id="randNote">57케이스 중 하나를 무작위로 고릅니다. 최근에 나온 케이스는 피합니다. 케이스 이름은 채점 화면에서 공개됩니다.</p>
   </div>
   <button class="btn ghost" id="openImport">케이스 불러오기</button>
 
@@ -415,8 +413,7 @@ const store = {
   },
   meta(c){
     return { id:c.id, title:c.title||c.id, code:c.code||"",
-             module:c.module||99, moduleName:c.moduleName||"", moduleColor:c.moduleColor||"",
-             cat:c.cat||"", order:c.order||0 };
+             module:c.module||99, moduleName:c.moduleName||"", moduleColor:c.moduleColor||"" };
   },
   load(id){                            // 고른 케이스 하나만 펼친다
     try{ const raw = localStorage.getItem(PFX+"c."+id); return raw ? JSON.parse(raw) : null; }
@@ -466,10 +463,9 @@ function groupOptions(cases){
     let g = groups.find(x => x.key === key);
     if(!g){ g = { key:key, no:(c.module||99), color:c.moduleColor||"#8A8F98", items:[] };
             groups.push(g); }
-    g.items.push({ i:i, order:(c.order||999), label:(c.cat ? c.cat+" · " : "") + (c.code ? c.code+"  " : "") + (c.title||c.id) });
+    g.items.push({ i:i, label:(c.code ? c.code+"  " : "") + (c.title||c.id) });
   });
   groups.sort((a,b) => a.no - b.no);
-  groups.forEach(g => g.items.sort((a,b) => a.order - b.order));   // 분류 안에서는 합본 순서
   return groups.map(g =>
     '<optgroup label="'+esc((g.no<90 ? "Module "+g.no+" — " : "")+g.key)+'">' +
     g.items.map(o => '<option value="'+o.i+'">'+esc(o.label)+"</option>").join("") +
@@ -522,11 +518,11 @@ async function fetchVoices(key){
 function repairIndex(){
   const ids = store.idx();
   if(!ids.length) return 0;
-  const needs = ids.some(m => !m.moduleName || !m.code || (m.module > 100 && !m.order));
+  const needs = ids.some(m => !m.moduleName || !m.code);
   if(!needs) return 0;
   let fixed = 0;
   const rebuilt = ids.map(m => {
-    if(m.moduleName && m.code && !(m.module > 100 && !m.order)) return m;
+    if(m.moduleName && m.code) return m;
     const full = store.load(m.id);
     if(!full) return m;
     fixed++;
@@ -574,27 +570,75 @@ function voicesReady(){                 // 목록이 채워질 때까지 기다�
   });
 }
 
-function pickVoice(vs, hint){
-  hint = hint || "en-AU";
-  const base = hint.split("-")[0];
-  return vs.find(v => v.lang && v.lang.replace("_","-") === hint)
-      || vs.find(v => v.lang && v.lang.replace("_","-").startsWith("en-AU"))
-      || vs.find(v => v.lang && v.lang.replace("_","-").startsWith("en-GB"))
-      || vs.find(v => v.lang && v.lang.startsWith(base))
-      || null;
+/* 목소리 고르기 — 섹션 페이지에서 고른 목소리가 있으면 그것, 없으면 호주 Natural(Edge) 음성을 먼저 */
+function voiceScore(v){
+  const lang = (v.lang || "").replace("_","-");
+  let sc = 0;
+  if(lang.startsWith("en-AU")) sc += 10; else if(lang.startsWith("en-NZ")) sc += 5; else if(lang.startsWith("en-GB")) sc += 4; else if(lang.startsWith("en")) sc += 1;
+  if(/natural/i.test(v.name)) sc += 20; else if(/online|neural/i.test(v.name)) sc += 12; else if(/google/i.test(v.name)) sc += 3;
+  return sc;
+}
+function bestVoice(vs, savedKey){
+  vs = (vs || []).filter(v => v.lang && v.lang.startsWith("en"));
+  let saved = ""; try{ saved = JSON.parse(localStorage.getItem(savedKey) || '""'); }catch(e){}
+  return vs.find(v => v.name === saved) || vs.slice().sort((a,b) => voiceScore(b) - voiceScore(a))[0] || null;
+}
+function pickVoice(vs, hint){            // 환자 목소리: 섹션 페이지에서 고른 것 → 없으면 Dentist와 다른 호주 Natural
+  const en = (vs || []).filter(v => v.lang && v.lang.startsWith("en")).sort((a,b) => voiceScore(b) - voiceScore(a));
+  const get = k => { try{ return JSON.parse(localStorage.getItem(k) || '""'); }catch(e){ return ""; } };
+  const sv = en.find(v => v.name === get("sec.vpt")); if(sv) return sv;
+  const d = en.find(v => v.name === get("sec.vdr")) || en[0];
+  return en.find(v => v !== d && voiceScore(v) >= voiceScore(d) - 9) || en.find(v => v !== d) || d || null;
 }
 
 let elAudio = null;
 
-function browserSay(text){
+/* ── 첫소리 잘림 방지 ──
+   폰(특히 블루투스)은 소리가 한동안 없으면 오디오 출력을 재운다. 다시 깨는 동안 첫 음절이 잘리므로
+   ① 조용한 소리를 먼저 흘려 출력을 깨우고 ② 직전 음성을 끈 직후엔 잠깐 쉬었다가 시작한다. */
+let AC = null, lastSound = 0;
+const markSound = () => { lastSound = Date.now(); };
+function wakeAudio(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(Ctx){
+      if(!AC) AC = new Ctx();
+      if(AC.state === "suspended") AC.resume().catch(() => {});
+      const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * 0.6), AC.sampleRate);
+      const src = AC.createBufferSource(); src.buffer = buf; src.connect(AC.destination); src.start();
+    }
+  }catch(e){}
+  return new Promise(r => setTimeout(r, 400));
+}
+const isCold = () => Date.now() - lastSound > 2000;
+async function playUrl(url, rate){      // 녹음 · ElevenLabs 파일 재생도 같은 방식으로
+  if(isCold()) await wakeAudio();
+  const a = new Audio(url); if(rate) a.playbackRate = rate;
+  a.onplaying = markSound; a.onended = markSound;
+  await a.play();
+  return a;
+}
+let sayTok = 0;
+function browserSay(text, wasBusy){
   if(!canSpeak) return;
+  const tok = sayTok;
   const hint = (S.kase && S.kase.patient && S.kase.patient.voiceHint) || "en-AU";
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = hint;
-  if(voiceCache) u.voice = voiceCache;
-  u.rate = store.r; u.pitch = 1.0;
-  speechSynthesis.speak(u);
+  const begin = (cold) => {
+    if(tok !== sayTok) return;
+    if(cold){                                     // 음성 엔진도 소리 없는 한 마디로 먼저 깨운다
+      const w = new SpeechSynthesisUtterance(".");
+      w.volume = 0; w.lang = hint; if(voiceCache) w.voice = voiceCache;
+      speechSynthesis.speak(w);
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = hint;
+    if(voiceCache) u.voice = voiceCache;
+    u.rate = store.r; u.pitch = 1.0;
+    u.onstart = markSound; u.onend = markSound; u.onerror = markSound;
+    speechSynthesis.speak(u);
+  };
+  if(isCold()) wakeAudio().then(() => begin(true));
+  else setTimeout(() => begin(false), wasBusy ? 160 : 0);   // 끄자마자 바로 말하면 첫소리가 먹힌다
 }
 
 async function elevenSay(text){
@@ -616,16 +660,16 @@ async function elevenSay(text){
   }
   const url = URL.createObjectURL(await res.blob());
   if(elAudio){ try{ elAudio.pause(); }catch(e){} }
-  elAudio = new Audio(url);
-  elAudio.playbackRate = store.r;
-  elAudio.onended = () => URL.revokeObjectURL(url);
-  await elAudio.play();
+  elAudio = await playUrl(url, store.r);
+  elAudio.onended = () => { markSound(); URL.revokeObjectURL(url); };
 }
 
 async function say(text){
   if(!text) return;
   S.speaking = text;
+  sayTok++;
   if(elAudio){ try{ elAudio.pause(); }catch(e){} }
+  const wasBusy = canSpeak && (speechSynthesis.speaking || speechSynthesis.pending);
   speechSynthesis && speechSynthesis.cancel();
 
   if(!voiceCache && canSpeak){
@@ -639,7 +683,7 @@ async function say(text){
       if(!S.elWarned){ S.elWarned = true; fail(e.message + " 기본 음성으로 계속합니다."); }
     }
   }
-  browserSay(text);
+  browserSay(text, wasBusy);
 }
 
 
@@ -1024,7 +1068,7 @@ function listen(){
 
   if(store.stt === "scribe"){          // 녹음해서 보내는 방식
     if(TAKE.on){ sttTurn(); return; }  // 두 번째 탭 = 끝내고 전송
-    speechSynthesis && speechSynthesis.cancel();
+    sayTok++; speechSynthesis && speechSynthesis.cancel();
     takeStart();
     return;
   }
@@ -1045,7 +1089,7 @@ function listen(){
     return;
   }
 
-  speechSynthesis && speechSynthesis.cancel();
+  sayTok++; speechSynthesis && speechSynthesis.cancel();
   S.want = true;
   S.stopping = false;
   S.restarts = 0;
@@ -1435,11 +1479,7 @@ function drawReport(r){
   });
 
   const cf = r.criticalFail || {};
-  let h = S.random                                 // 랜덤 스테이션: 여기서 케이스를 공개한다
-    ? '<p class="note" style="background:var(--teal-pale);border-left:3px solid var(--teal);padding:9px 11px">' +
-      "이번 랜덤 스테이션: <b>" + esc((k.code ? k.code + " " : "") + (k.title || k.id)) + "</b></p>"
-    : "";
-  h += '<div class="verdict'+(cf.triggered ? " fail" : "")+'">';
+  let h = '<div class="verdict'+(cf.triggered ? " fail" : "")+'">';
   if(cf.triggered){
     h += "<div><strong>Critical fail</strong></div>";
     h += '<div class="note" style="color:inherit">'+esc(cf.which)+"<br>"+esc(cf.why)+"</div>";
@@ -1518,27 +1558,12 @@ function drawPace(el){
   for(; i < bs.length; i++){ end += bs[i].sec; if(el < end) break; }
   if(i >= bs.length){ e.textContent = "마무리 시간"; return; }
   const nx = bs[i+1];
-  e.innerHTML = S.random                          // 랜덤 스테이션: 블록 이름이 케이스를 알려 주지 않게 번호만
-    ? "지금 <b>블록 " + (i+1) + " / " + bs.length + "</b> · " + mmss(end - el) + " 남음"
-    : "지금 <b>" + esc(bs[i].name) + "</b> · " + mmss(end - el) + " 남음" + (nx ? " · 다음 " + esc(nx.name) : "");
+  e.innerHTML = "지금 <b>" + esc(bs[i].name) + "</b> · " + mmss(end - el) + " 남음" +
+                (nx ? " · 다음 " + esc(nx.name) : "");
   if(S.paceAt !== i){
     if(S.paceAt != null){ try{ navigator.vibrate && navigator.vibrate(120); }catch(err){} }
     S.paceAt = i;
   }
-}
-/* 랜덤 스테이션: 최근에 나온 케이스는 피한다 */
-function recentRandom(){ try{ return JSON.parse(localStorage.getItem("osce.recentRandom") || "[]"); }catch(e){ return []; } }
-function rememberRandom(id){
-  const r = recentRandom().filter(x => x !== id); r.push(id);
-  try{ localStorage.setItem("osce.recentRandom", JSON.stringify(r.slice(-20))); }catch(e){}
-}
-function pickRandom(){
-  const n = S.metas.length;
-  if(!n) return -1;
-  const keep = Math.min(20, Math.floor(n / 2)), recent = recentRandom().slice(-keep);
-  let pool = S.metas.map((m,i) => i).filter(i => !recent.includes(S.metas[i].id));
-  if(!pool.length) pool = S.metas.map((m,i) => i);
-  return pool[Math.floor(Math.random() * pool.length)];
 }
 function runStation(){
   S.paceAt = null;
@@ -1627,13 +1652,11 @@ $("go").onclick = () => {
   S.elWarned = false;
   S.kase = takeCase(+$("caseSel").value);
   if(!S.kase){ fail("케이스가 없습니다."); return; }
-  if(S.random) rememberRandom(S.kase.id);
   VOCAB = null;                       // 케이스가 바뀌면 낱말 사전을 다시 만든다
   primeVoice();
 
   const card = S.kase.card;
-  $("briefStation").textContent = S.random ? "Random station · 10 minutes"
-                                            : (S.kase.station || "Communication station · 10 minutes");
+  $("briefStation").textContent = S.kase.station || "Communication station · 10 minutes";
 
   let bh = "";
   if(card){
@@ -1672,7 +1695,7 @@ $("finish").onclick = async () => {
   if(S.listening){ try{ S.recog.stop(); }catch(e){} }
   if(TAKE.on){ try{ TAKE.mr.stop(); }catch(e){} TAKE.on = false; }
   releaseMic();
-  speechSynthesis && speechSynthesis.cancel();
+  sayTok++; speechSynthesis && speechSynthesis.cancel();
   clearInterval(S.stnT);
 
   if(S.turns.filter(t => t.role === "dr").length === 0){
@@ -1878,26 +1901,8 @@ if(store.eng === "11" && store.elv){
 }
 loadCases();
 if(canSpeak) voicesReady().then(vs => { voiceCache = pickVoice(vs, "en-AU"); });
-
-/* 랜덤 스테이션 버튼 — 기존 시작 버튼의 흐름을 그대로 쓴다 */
-(function(){
-  const goNormal = $("go").onclick;
-  $("go").onclick = () => { S.random = false; goNormal(); };
-  $("goRandom").onclick = () => {
-    const i = pickRandom();
-    if(i < 0){ fail("케이스가 없습니다."); return; }
-    const prev = $("caseSel").value;
-    $("caseSel").value = String(i);
-    S.random = true;
-    goNormal();
-    $("caseSel").value = prev;                           // 목록에는 원래 고른 케이스를 남긴다
-  };
-  if(/[?&]random=1/.test(location.search)){            // app.html의 '랜덤 스테이션'에서 왔을 때
-    $("goRandom").classList.remove("ghost");
-    $("go").classList.add("ghost");
-    setTimeout(() => $("goRandom").scrollIntoView({ block:"center" }), 300);
-  }
-})();
+if(canSpeak && "onvoiceschanged" in speechSynthesis)            // Edge는 Natural 음성이 늦게 붙는다
+  speechSynthesis.addEventListener("voiceschanged", () => { voiceCache = pickVoice(speechSynthesis.getVoices(), "en-AU"); });
 </script>
 </body>
 </html>
