@@ -83,6 +83,8 @@
   .turn .ko{font-size:14px;color:var(--ink-soft);margin-top:3px;line-height:1.45}
   .turn.now{background:var(--card);margin-left:-10px;padding-left:23px;border-left-width:3px;border-radius:0 3px 3px 0}
   .turn.dim{opacity:.5}
+  .turn.tap{cursor:pointer}
+  .turn.tap:active{background:var(--card)}
   .turn.miss .en{background:var(--amber-pale)}
   .tag{font-size:11px;color:#8A8F98}
 
@@ -874,27 +876,31 @@ function openRun(title, how){
 /* ── 듣기 ── */
 function runListen(){
   const s = R.sec, T = s.script;
-  openRun(s.code + " · 듣기", "흐름만 익히세요. 영어와 한국어를 같이 따라갑니다.");
-  R.i = 0; R.playing = false;
+  openRun(s.code + " · 듣기", "흐름만 익히세요. 영어와 한국어를 같이 따라갑니다. 대사를 누르면 거기서부터 듣습니다.");
+  R.i = 0; R.playing = false; R.gen = 0;
   const draw = () => {
     $("runBody").innerHTML = T.map((t,i) =>
-      '<div class="turn '+t.who+(R.playing && i===R.i ? " now" : "")+'" id="t'+i+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+'</div>' +
+      '<div class="turn tap '+t.who+(R.playing && i===R.i ? " now" : "")+'" id="t'+i+'" data-i="'+i+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+'</div>' +
       '<div class="en">'+tagify(t.en)+'</div><div class="ko">'+esc(t.ko)+'</div></div>').join("");
+    document.querySelectorAll("#runBody .turn.tap").forEach(e => e.onclick = () => jump(+e.dataset.i));
     bar(R.i / T.length);
     dock([{ label:"섹션으로", cls:"sec", go:backToSec },
           { label: R.playing ? "■ 정지" : (R.i > 0 && R.i < T.length ? "▶ 이어 듣기" : "▶ 처음부터 듣기"), go: toggle }]);
   };
-  const step = () => {
-    if(!R.playing) return;
+  const step = (gen) => {
+    if(!R.playing || gen !== R.gen) return;
     if(R.i >= T.length){ R.playing = false; R.i = 0; bar(1); draw(); markSec(s.code, null); return; }
     draw();
     const el = $("t"+R.i); if(el) el.scrollIntoView({ block:"center", behavior:"smooth" });
-    speak(T[R.i].en, T[R.i].who, () => { if(!R.playing) return; R.i++; setTimeout(step, 350); });
+    speak(T[R.i].en, T[R.i].who, () => { if(!R.playing || gen !== R.gen) return; R.i++; setTimeout(() => step(gen), 350); });
+  };
+  const jump = (i) => {                      // 누른 대사부터 다시 재생
+    stopSpeak(); R.gen++; R.i = i; R.playing = true; step(R.gen);
   };
   const toggle = () => {
-    if(R.playing){ R.playing = false; stopSpeak(); draw(); return; }
+    if(R.playing){ R.playing = false; R.gen++; stopSpeak(); draw(); return; }
     if(R.i >= T.length) R.i = 0;
-    R.playing = true; step();
+    R.playing = true; R.gen++; step(R.gen);
   };
   draw();
 }

@@ -393,7 +393,9 @@ function wakeAudio(){
     if(Ctx){
       if(!AC) AC = new Ctx();
       if(AC.state === "suspended") AC.resume().catch(() => {});
+      // 완전한 0은 USB-C 이어폰(DAC) · 블루투스가 '소리 없음'으로 보고 잠든다 → 들리지 않는 아주 작은 잡음(약 -66 dB)
       const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * 0.6), AC.sampleRate);
+      const ch = buf.getChannelData(0); for(let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * 0.0005;
       const src = AC.createBufferSource(); src.buffer = buf; src.connect(AC.destination); src.start();
     }
   }catch(e){}
@@ -722,8 +724,9 @@ function start(step){
 /* 0 — 듣기만 */
 function runListen(){
   const ts = turns();
-  $("runBody").innerHTML = ts.map((t,i) =>
-    '<div class="turn '+(t.who==="dr"?"dr":"pt")+'" id="t'+i+'">' +
+  let gen = 0;
+  $("runBody").innerHTML = '<p class="note" style="margin:0 0 10px">대사를 누르면 거기서부터 듣습니다.</p>' + ts.map((t,i) =>
+    '<div class="turn '+(t.who==="dr"?"dr":"pt")+'" id="t'+i+'" data-i="'+i+'" style="cursor:pointer">' +
     '<div class="who">'+(t.who==="dr"?"Dentist":"Patient")+"</div>" +
     '<div class="en">'+esc(t.en)+"</div>"+(t.ko?'<div class="ko">'+esc(t.ko)+"</div>":"")+"</div>").join("");
 
@@ -732,24 +735,30 @@ function runListen(){
     const e = $("t"+i);
     if(e){ e.classList.add("now"); e.scrollIntoView({block:"center",behavior:"smooth"}); }
   };
-  const step = () => {
+  const step = (g) => {
+    if(g !== gen) return;
     if(!S.playing || S.i >= ts.length){
       S.playing = false;
       dock([{label:"처음으로",sec:true,go:home},{label:"들었습니다 — 다음 단계",go:finishStep}]);
       return;
     }
     mark(S.i);
-    speak(ts[S.i].en, () => { S.i++; setTimeout(step, 260); });
+    speak(ts[S.i].en, () => { if(g !== gen) return; S.i++; setTimeout(() => step(g), 260); });
   };
+  const play = () => { gen++; step(gen); };
+  const halt = () => { gen++; stopSpeak(); };
+  document.querySelectorAll("#runBody .turn[data-i]").forEach(e => e.onclick = () => {   // 누른 대사부터 다시 재생
+    halt(); S.i = +e.dataset.i; S.playing = true; dockListen(true); play();
+  });
   dock([
     {label:"처음으로",sec:true,go:home},
-    {label:"재생",go:()=>{ if(S.playing){ S.playing=false; stopSpeak(); dockListen(false); }
-                          else { S.playing=true; dockListen(true); step(); } }}
+    {label:"재생",go:()=>{ if(S.playing){ S.playing=false; halt(); dockListen(false); }
+                          else { S.playing=true; dockListen(true); play(); } }}
   ]);
   function dockListen(on){
     dock([{label:"처음으로",sec:true,go:home},
-          {label:on?"정지":"재생",go:()=>{ if(S.playing){S.playing=false;stopSpeak();dockListen(false);}
-                                          else {S.playing=true;dockListen(true);step();} }},
+          {label:on?"정지":"재생",go:()=>{ if(S.playing){S.playing=false;halt();dockListen(false);}
+                                          else {S.playing=true;dockListen(true);play();} }},
           {label:"다 들었음",sec:true,go:finishStep}]);
   }
 }
