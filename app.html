@@ -140,7 +140,7 @@
 
 <section id="home" class="stage on">
   <h1>OSCE 확인</h1>
-  <p class="ver">v10.1 · 확인용 · 과목별/날짜순 목록 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
+  <p class="ver">v10.2 · 블록 연습 페이지 연결 · 확인용 · 과목별/날짜순 목록 · 블록 자유 모드(AI 환자) · 디테일 전 큐카드 · 랜덤 스테이션 · 9분류 목록 · ElevenLabs 음성인식 · 케이스 지우기 · 디테일 · 3분 요약 · 블록 말하기 · 롤플레이</p>
   <div class="seg" id="sortSeg" style="margin-bottom:8px">
     <button data-v="subj">과목별</button>
     <button data-v="day">강의 날짜순</button>
@@ -153,6 +153,7 @@
     <button class="big" data-go="blocks"><span class="n">3</span><span><div class="t">블록 말하기</div><div class="d">블록마다 정해진 시간 안에 말하기</div></span></button>
     <button class="big" data-go="play"><span class="n">4</span><span><div class="t">10분 롤플레이</div><div class="d">AI 환자 · 채점</div></span></button>
     <button class="big" data-go="read"><span class="n">5</span><span><div class="t">케이스 디테일 읽기</div><div class="d">디테일 카드 전부를 한 페이지로 · 소리로 듣기 (운전 중 · API 없음)</div></span></button>
+    <a class="big" href="blocks.html" style="text-decoration:none;color:inherit"><span class="n">6</span><span><div class="t">블록 연습</div><div class="d">블록별 듣기 · 따라 읽기 · 한→영 · 통으로 말하기 · 블록 종류별 랜덤 (blocks.html)</div></span></a>
   </div>
   <p class="note" id="noBlocks"></p>
 
@@ -281,9 +282,10 @@ const rate = () => parseFloat(ls.raw("chk.rate", "1.1")) || 1.1;
 function pickVoice(){
   if(!canSpeak) return;
   const vs = speechSynthesis.getVoices() || [];
-  VOICE = vs.find(v => (v.lang||"").replace("_","-").startsWith("en-AU")) ||
-          vs.find(v => (v.lang||"").replace("_","-").startsWith("en-GB")) ||
-          vs.find(v => (v.lang||"").startsWith("en")) || null;
+  const sc = v => { const l = (v.lang||"").replace("_","-"); let n = l.startsWith("en-AU") ? 10 : l.startsWith("en-GB") ? 4 : l.startsWith("en") ? 1 : -99;
+    if(/natural/i.test(v.name)) n += 20; else if(/online|neural/i.test(v.name)) n += 12; else if(/google/i.test(v.name)) n += 3; return n; };
+  let saved = ""; try{ saved = JSON.parse(localStorage.getItem("sec.vpt") || '""'); }catch(e){}   // 섹션 페이지에서 고른 환자 목소리
+  VOICE = vs.find(v => v.name === saved) || vs.filter(v => sc(v) > 0).sort((a,b) => sc(b) - sc(a))[0] || null;
   VOICE_KO = vs.find(v => (v.lang||"").replace("_","-").toLowerCase().startsWith("ko")) || null;
 }
 if(canSpeak){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
@@ -299,26 +301,64 @@ function chunks(text){
   if(rest) out.push(rest);
   return out;
 }
+/* ── 첫소리 잘림 방지 ──
+   폰(특히 블루투스)은 소리가 한동안 없으면 오디오 출력을 재운다. 다시 깨는 동안 첫 음절이 잘리므로
+   ① 조용한 소리를 먼저 흘려 출력을 깨우고 ② 직전 음성을 끈 직후엔 잠깐 쉬었다가 시작한다. */
+let AC = null, lastSound = 0;
+const markSound = () => { lastSound = Date.now(); };
+function wakeAudio(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(Ctx){
+      if(!AC) AC = new Ctx();
+      if(AC.state === "suspended") AC.resume().catch(() => {});
+      // 완전한 0은 USB-C 이어폰(DAC) · 블루투스가 '소리 없음'으로 보고 잠든다 → 들리지 않는 아주 작은 잡음(약 -66 dB)
+      const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * 0.6), AC.sampleRate);
+      const ch = buf.getChannelData(0); for(let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * 0.0005;
+      const src = AC.createBufferSource(); src.buffer = buf; src.connect(AC.destination); src.start();
+    }
+  }catch(e){}
+  return new Promise(r => setTimeout(r, 400));
+}
+const isCold = () => Date.now() - lastSound > 2000;
+async function playUrl(url, rate){      // 녹음 · ElevenLabs 파일 재생도 같은 방식으로
+  if(isCold()) await wakeAudio();
+  const a = new Audio(url); if(rate) a.playbackRate = rate;
+  a.onplaying = markSound; a.onended = markSound;
+  await a.play();
+  return a;
+}
+function warmTTS(voice, lang){                 // 음성 엔진도 소리 없는 한 마디로 먼저 깨운다
+  const w = new SpeechSynthesisUtterance("."); w.volume = 0; w.lang = lang; if(voice) w.voice = voice;
+  speechSynthesis.speak(w);
+}
 let keep = null, sayId = 0;
 function speak(text, onEnd){
   const id = ++sayId;
-  const done = () => { if(id === sayId){ clearInterval(keep); onEnd && onEnd(); } };
+  const done = () => { if(id === sayId){ markSound(); clearInterval(keep); onEnd && onEnd(); } };
   if(!canSpeak || !text){ setTimeout(done, 300); return; }
-  speechSynthesis.cancel();
+  const busy = speechSynthesis.speaking || speechSynthesis.pending;
+  if(busy) speechSynthesis.cancel();            // 끄자마자 바로 말하면 첫소리가 먹힌다
   clearInterval(keep);
-  keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
   const parts = chunks(text); let i = 0;
   const next = () => {
     if(id !== sayId) return;
     if(i >= parts.length){ done(); return; }
     const u = new SpeechSynthesisUtterance(parts[i++]);
     u.lang = "en-AU"; if(VOICE) u.voice = VOICE; u.rate = rate();
-    let moved = false; const go = () => { if(!moved){ moved = true; next(); } };
-    u.onend = go; u.onerror = go;
+    let moved = false; const go = () => { if(!moved){ moved = true; markSound(); next(); } };
+    u.onstart = markSound; u.onend = go; u.onerror = go;
     speechSynthesis.speak(u);
     setTimeout(() => { if(!speechSynthesis.speaking) go(); }, Math.max(3000, parts[i-1].length / 12 * 1000 / rate() + 2500));
   };
-  next();
+  const start = (cold) => {
+    if(id !== sayId) return;
+    keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
+    if(cold) warmTTS(VOICE, "en-AU");
+    next();
+  };
+  if(isCold()) wakeAudio().then(() => start(true));
+  else setTimeout(() => start(false), busy ? 160 : 0);
 }
 function stopSpeak(){ sayId++; clearInterval(keep); if(canSpeak) speechSynthesis.cancel(); }
 
@@ -1198,19 +1238,28 @@ function sayLine(text, onEnd){
   const id = ++sayId;
   const done = () => { if(id === sayId){ clearInterval(keep); onEnd && onEnd(); } };
   if(!canSpeak || !text){ setTimeout(done, 200); return; }
-  speechSynthesis.cancel(); clearInterval(keep);
+  const busy = speechSynthesis.speaking || speechSynthesis.pending;
+  if(busy) speechSynthesis.cancel();
+  clearInterval(keep);
+  const cold = isCold();
+  const go = () => { if(id === sayId) sayLineNow(id, text, done, cold); };
+  if(cold) wakeAudio().then(go); else setTimeout(go, busy ? 160 : 0);
+}
+function sayLineNow(id, text, done, cold){
   keep = setInterval(() => { if(speechSynthesis.speaking && !speechSynthesis.paused){ speechSynthesis.pause(); speechSynthesis.resume(); } }, 9000);
   const pieces = [];
   mergeShort(splitLang(text)).forEach(s => chunks(speechText(s.text, s.lang === "ko")).forEach(c => pieces.push({ lang:s.lang, text:c })));
   if(!pieces.length){ setTimeout(done, 200); return; }
   let left = pieces.length, total = 0;
+  if(cold){ const f = pieces[0]; warmTTS(f.lang === "ko" ? voiceKo() : voiceEn(), f.lang === "ko" ? "ko-KR" : "en-AU"); }
   pieces.forEach(p => {
     const u = new SpeechSynthesisUtterance(p.text);
     const v = p.lang === "ko" ? voiceKo() : voiceEn();
     u.lang = p.lang === "ko" ? "ko-KR" : "en-AU"; if(v) u.voice = v;
     u.rate = rate() * (p.lang === "ko" ? 0.95 : 1);
     total += p.text.length / (p.lang === "ko" ? 6 : 12);
-    u.onend = u.onerror = () => { if(--left <= 0) done(); };
+    u.onstart = markSound;
+    u.onend = u.onerror = () => { markSound(); if(--left <= 0) done(); };
     speechSynthesis.speak(u);
   });
   setTimeout(() => { if(id === sayId && !speechSynthesis.speaking && !speechSynthesis.pending) done(); }, Math.max(4000, total * 1000 / rate() + 4000));
