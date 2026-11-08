@@ -378,7 +378,9 @@ function wakeAudio(){
     if(Ctx){
       if(!AC) AC = new Ctx();
       if(AC.state === "suspended") AC.resume().catch(() => {});
+      // 완전한 0은 USB-C 이어폰(DAC) · 블루투스가 '소리 없음'으로 보고 잠든다 → 들리지 않는 아주 작은 잡음(약 -66 dB)
       const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * 0.6), AC.sampleRate);
+      const ch = buf.getChannelData(0); for(let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * 0.0005;
       const src = AC.createBufferSource(); src.buffer = buf; src.connect(AC.destination); src.start();
     }
   }catch(e){}
@@ -1150,10 +1152,16 @@ function runWhole(){
   };
 
   /* ── 대화 모드 ── */
-  const patientSays = (text) => {
+  const patientSays = (text, last) => {
     if(W.ending) return;
-    W.state = "pt"; clockOn(); draw();
-    speak(text, "pt", () => { if(R.W === W && W.state === "pt" && !W.ending) myTurn(); });
+    W.state = "pt"; clockOn();
+    if(last) W.note = "";
+    draw();
+    speak(text, "pt", () => {
+      if(R.W !== W || W.state !== "pt" || W.ending) return;
+      if(last){ W.ending = true; clockOff(); tick(); endFinish(""); }   // 이 섹션 끝 → 결과로
+      else myTurn();
+    });
   };
   const myTurn = () => {
     if(W.ending || R.W !== W) return;
@@ -1179,12 +1187,17 @@ function runWhole(){
     if(!said){ W.note = A.err || "말을 알아듣지 못했습니다. 다시 말해 주세요."; W.state = "idleMic"; draw(); return; }
     W.log.push({ who:"dr", en:said }); W.my.push(said);
     W.state = "think"; W.thinkMsg = "환자가 생각 중…"; draw();
-    let reply = "";
+    let reply;
     try{ reply = await patientReply(s, W.log); }
     catch(e){ if(R.W !== W) return; W.note = "환자 대답 실패: " + e.message; W.state = "idleMic"; draw(); return; }
     if(R.W !== W || W.ending) return;
-    W.log.push({ who:"pt", en:reply });
-    patientSays(reply);
+    // 상한: 이 섹션 환자 대사 수 + 확인 질문 2번을 넘으면 더 끌지 않고 끝낸다
+    const ptTurns = W.log.filter(x => x.who === "pt").length + 1;
+    const cap = s.script.filter(t => t.who === "pt").length + 2;
+    const end = reply.end || ptTurns >= cap;
+    if(reply.text){ W.log.push({ who:"pt", en:reply.text }); }
+    if(end){ W.autoEnd = true; patientSays(reply.text || "Okay, thank you.", true); }
+    else patientSays(reply.text);
   };
   const endConv = () => {
     if(W.ending) return;
@@ -1237,6 +1250,7 @@ function runWhole(){
         '<div class="judge '+jc+'">'+jt+'</div>' +
         (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s)).join(" · ")+'</div>' : "");
       if(log){
+        if(W.autoEnd) h += '<p class="note">환자가 이 섹션의 대사를 다 해서 자동으로 끝났어요.</p>';
         h += '<p class="note">내가 말한 것 '+words+'단어 (Dentist 대본 '+tm.drW+'단어) · 시간은 내 말과 환자 말만 잼</p>';
         h += '<h2>오늘 대화</h2>' + (log.length ? log.map(x => '<div class="turn '+x.who+'"><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div><div class="en">'+esc(x.en)+'</div></div>').join("") : '<p class="note">대화 기록이 없습니다.</p>');
       }else{
@@ -1282,21 +1296,30 @@ function runWhole(){
 /* Claude가 환자 역할로 한 차례 대답한다 */
 const PATIENT_SYS = [
   "You play the PATIENT in a short role-play for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
-  "A Korean dentist is practising one section of a consultation in English. Their words come from speech recognition and may contain small errors: guess what they meant.",
-  "How to reply:",
-  "- Reply as the patient to what the dentist just said. One or two short spoken sentences, under 25 words in total.",
-  "- Plain everyday Australian English. No medical words unless the dentist used them first.",
-  "- React naturally. If something was unclear or used jargon, ask what it means. If it was clear, show you understood, then raise your next worry.",
-  "- Take your worries and questions from the patient lines in the model script, one at a time, in a natural order. Never repeat a question the dentist already answered.",
-  "- If the dentist asks you something, answer in character using the scenario and script. If they give no answer, keep it short, plausible and neutral.",
-  "- Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI.",
-  "- If the dentist has covered the topic and is wrapping up, give a short closing reply.",
-  "Reply with the patient's spoken words only. No quotation marks, no stage directions."
+  "A Korean dentist is practising ONE short section of a consultation in English, not the whole consultation.",
+  "Their words come from speech recognition and may contain small errors: guess what they meant.",
+  "STRICT SCOPE: you may only say the patient lines listed for this section, one at a time, in order, in your own words but close to the original.",
+  "Never bring up any other worry, question or topic. No small talk. Nothing from other parts of the consultation.",
+  "Each reply is exactly one of these:",
+  "A) The next unused patient line from the list, when the dentist has answered the previous one.",
+  "B) A very short question asking what a word means, only if the dentist used medical jargon. At most once per word, and at most twice in total.",
+  "C) If every patient line has been used and the dentist has covered the topic or is wrapping up: one short closing sentence (under 10 words, e.g. 'Okay, that makes sense. Thanks.'), then the tag <<END>>.",
+  "D) If every patient line has been used but the dentist is clearly still explaining: a one or two word backchannel such as 'Okay.' or 'Right.' Nothing more.",
+  "If the list has no unused lines left after the dentist's first turn and the dentist has said something on the topic, choose C.",
+  "Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI.",
+  "Plain everyday Australian English. Reply with the patient's spoken words only (plus <<END>> when ending). No quotation marks, no stage directions."
 ].join("\n");
 async function patientReply(s, log){
+  const ptLines = s.script.filter(t => t.who === "pt").map(t => clean(t.en));
+  const used = log.filter(x => x.who === "pt").length;
   const sys = PATIENT_SYS + "\n\nSection topic: " + s.title +
     ((s.info||{})["기본 시나리오"] ? "\nScenario: " + s.info["기본 시나리오"] : "") +
-    "\n\nModel script for this section (for your character, worries and questions only):\n" +
+    "\n\nPatient lines for this section, in order (" + ptLines.length + " in total):\n" +
+    (ptLines.length ? ptLines.map((t,i) => (i+1) + ". " + t).join("\n") : "(none — the patient only listens and closes)") +
+    "\n\nYou have spoken " + used + " time(s) so far in this section (this count includes any clarification questions)." +
+    "\n\nWhat the dentist should cover in this section (for judging when it is done; never say this to the dentist):\n" +
+    (s.checks || []).map(c => "- " + c).join("\n") +
+    "\n\nModel script (for context only):\n" +
     s.script.map(t => (t.who === "dr" ? "Dentist: " : "Patient: ") + clean(t.en)).join("\n");
   const msgs = [];
   const push = (role, text) => { const last = msgs[msgs.length-1]; if(last && last.role === role) last.content += "\n" + text; else msgs.push({ role, content:text }); };
@@ -1323,9 +1346,10 @@ async function patientReply(s, log){
   }
   const data = await res.json();
   let txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-  txt = txt.replace(/^\s*(Patient:)\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*[^*]*\*/g, "").replace(/\s+/g, " ").trim();
-  if(!txt) throw new Error("빈 대답");
-  return txt;
+  const end = /<<\s*END\s*>>/i.test(txt);
+  txt = txt.replace(/<<\s*END\s*>>/ig, "").replace(/^\s*(Patient:)\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*[^*]*\*/g, "").replace(/\s+/g, " ").trim();
+  if(!txt && !end) throw new Error("빈 대답");
+  return { text: txt, end: end };
 }
 
 function playScript(s){
