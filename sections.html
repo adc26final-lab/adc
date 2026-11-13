@@ -329,7 +329,7 @@ function srcBoxDraw(){
   const u = SRC.url;
   let h;
   if(!u) h = "원본 주소가 없습니다. 아래에 Apps Script 웹 앱 주소를 넣으면 문서를 고칠 때마다 바로 반영됩니다.";
-  else if(SRC.busy) h = "원본 문서를 읽는 중…";
+  else if(SRC.busy) h = "원본 문서를 읽는 중… <b>" + Math.round((Date.now() - SRC.t0) / 1000) + "초</b><br>문서를 고친 뒤 처음 읽을 때는 30초~1분 걸릴 수 있어요. 그동안 연습은 그대로 하셔도 됩니다.";
   else{
     h = "<b>원본 연결됨</b>" + (SRC.at ? " · 마지막으로 불러온 때 " + fmtTime(SRC.at) : "");
     if(SRC.msg) h += "<br>" + esc(SRC.msg);
@@ -342,24 +342,35 @@ function srcBoxDraw(){
 async function syncSrc(why){
   const u = SRC.url;
   if(!u || SRC.busy) return false;
-  SRC.busy = true; SRC.err = ""; srcBoxDraw();
+  SRC.busy = true; SRC.err = ""; SRC.t0 = Date.now(); srcBoxDraw();
+  const tickBox = setInterval(() => { if(SRC.busy) srcBoxDraw(); }, 1000);
   const ac = typeof AbortController === "function" ? new AbortController() : null;
-  const bell = ac ? setTimeout(() => ac.abort(), 40000) : null;
+  const bell = ac ? setTimeout(() => ac.abort(), 150000) : null;
+  const haveRev = DATA && DATA.source === "gdoc" && DATA.rev ? DATA.rev : "";
   let v = null;
   try{
-    const res = await fetch(u + (u.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache:"no-store", redirect:"follow", signal: ac ? ac.signal : undefined });
+    const res = await fetch(u + (u.includes("?") ? "&" : "?") + "t=" + Date.now() + (haveRev ? "&rev=" + encodeURIComponent(haveRev) : ""), { cache:"no-store", redirect:"follow", signal: ac ? ac.signal : undefined });
     if(!res.ok) throw new Error("서버 응답 " + res.status);
     const txt = await res.text();
     try{ v = JSON.parse(txt); }catch(e){ throw new Error(/<html/i.test(txt) ? "주소가 웹 앱이 아니거나 ‘모든 사용자’ 접근이 꺼져 있습니다." : "받은 내용을 읽지 못했습니다."); }
     if(v && v.kind === "osce-sections-error") throw new Error("문서 읽기 오류: " + v.error);
+    if(v && v.kind === "osce-sections-same"){
+      clearInterval(tickBox); if(bell) clearTimeout(bell);
+      SRC.busy = false; SRC.at = Date.now();
+      const n = SECS.length, turns = SECS.reduce((a,s) => a + s.script.length, 0);
+      SRC.msg = "바뀐 것 없음 · 섹션 " + n + "개 · 대사 " + turns + "줄";
+      if($("s-home").classList.contains("on")) home(); else srcBoxDraw();
+      return false;
+    }
     if(!v || v.kind !== "osce-sections" || !Array.isArray(v.parts) || !v.parts.length) throw new Error("섹션 데이터가 아닙니다.");
   }catch(e){
-    SRC.busy = false;
-    SRC.err = (e && e.name === "AbortError" ? "원본 응답이 너무 늦습니다." : (e.message || "원본을 읽지 못했습니다.")) + (SECS.length ? " 마지막 내용으로 연습합니다." : "");
+    SRC.busy = false; clearInterval(tickBox);
+    SRC.err = (e && e.name === "AbortError" ? "원본 응답이 2분 넘게 없습니다. 잠시 뒤 🔄 를 다시 눌러 보세요." : (e.message || "원본을 읽지 못했습니다.")) + (SECS.length ? " 마지막 내용으로 연습합니다." : "");
     if(bell) clearTimeout(bell);
     srcBoxDraw(); return false;
   }
   if(bell) clearTimeout(bell);
+  clearInterval(tickBox);
   SRC.busy = false;
   const before = DATA ? dataSig(DATA) : "", changed = before !== dataSig(v);
   SRC.warn = Array.isArray(v.warnings) ? v.warnings : [];
