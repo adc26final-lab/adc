@@ -198,7 +198,7 @@
       <button class="ent" id="goCase"><div class="t">케이스별</div><div class="d">과목 → 케이스 → 블록 ①②③</div></button>
       <button class="ent typ" id="goType"><div class="t">블록 종류별</div><div class="d">57케이스의 같은 종류 블록을 모아서</div></button>
       <button class="ent rnd wide" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">과목 · 블록 종류를 고르면 무작위로 출제 (놓친 것 위주 가능)</div></button>
-      <button class="ent kr wide" id="goKr"><div class="t">한글 롤플레이 (케이스 전체)</div><div class="d">케이스 하나를 처음부터 끝까지 한국어로 — 흐름을 먼저 익히고, 끝나면 영어로</div></button>
+      <button class="ent kr wide" id="goKr"><div class="t">한글 롤플레이 (10분 전체)</div><div class="d">10분 롤플레이를 처음부터 끝까지 한국어로 — AI 환자와 대화하고 Claude가 채점, 그다음 영어로</div></button>
       <button class="ent cont wide hide" id="goLast"><div class="t" id="lastT"></div><div class="d" id="lastD"></div></button>
     </div>
     <p class="note" id="sumLine"></p>
@@ -1720,10 +1720,10 @@ function runDeck(items, title, onBack){
   draw();
 }
 
-/* ── 한글 롤플레이 (케이스 전체) ──
-   케이스의 모든 블록을 이어서 한국어로. 환자 대사(ko)는 한국어 음성으로 읽어 주고,
-   내 차례에는 블록 이름 · 할 일만 보고 한국어로 말한다. 모범 대사(ko)는 가려 두고 필요할 때만 본다.
-   기록: ST.kr[caseId] = [{s, t, ts, b:[블록별 초]}] (최근 10개) */
+/* ── 한글 롤플레이 (10분 전체, 블록 구분 없음) ──
+   AI 모드: 한국어 음성 인식 → Claude 환자가 한국어로 대답 → 끝나면 10분 전체 체크리스트 한 번에 채점.
+   혼자 하기: 환자 대사(ko)를 읽어 주고, 내 차례 모범 대사는 가려 두고 필요할 때만 본다.
+   기록: ST.kr[caseId] = [{s, t, ts, cov?, ai?}] (최근 10개) */
 const KOPT = { get tts(){ return LS.get("blk.krtts", true); }, set tts(v){ LS.set("blk.krtts", v); },
                get ai(){ return LS.get("blk.krai", true); },   set ai(v){ LS.set("blk.krai", v); } };
 const krAIok = () => AI.on && canMic();
@@ -1736,59 +1736,57 @@ function krStat(id){
 }
 function krRow(caseId){
   const c = CASES.find(x => x.id === caseId); if(!c) return "";
-  return '<button class="row krrow" data-k="'+esc(c.id)+'"><span class="cd">한글</span><span class="tt">한글 롤플레이 — 케이스 전체'+
-    '<div class="st">블록 '+c.blocks.length+'개 이어서 · '+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button>';
+  return '<button class="row krrow" data-k="'+esc(c.id)+'"><span class="cd">한글</span><span class="tt">한글 롤플레이 — 10분 전체'+
+    '<div class="st">'+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button>';
 }
 function drawKr(){
   FROM = "kr";
   show("s-pick");
   $("pickTitle").textContent = "한글 롤플레이";
-  $("pickLede").textContent = "케이스 하나를 처음부터 끝까지 한국어로 합니다. AI 환자가 한국어로 대답하고, 끝나면 Claude가 블록마다 꼭 말할 것을 채점합니다. 그다음 같은 케이스를 영어로 하세요.";
+  $("pickLede").textContent = "10분 롤플레이 전체를 처음부터 끝까지 한국어로 합니다. AI 환자가 한국어로 대답하고, 끝나면 Claude가 꼭 말할 것을 채점합니다. 그다음 같은 케이스를 영어로 하세요.";
   let h = "", grp = null;
   CASES.forEach(c => {
     if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
     h += '<div class="part"><button class="row krow" data-k="'+esc(c.id)+'"><span class="cd">'+esc(c.cat || "")+'</span>' +
-      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">블록 '+c.blocks.length+'개 · '+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button></div>';
+      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">'+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button></div>';
   });
   $("parts").innerHTML = h;
   document.querySelectorAll("#parts .krow").forEach(b => b.onclick = () => runKr(b.dataset.k, "kr"));
 }
-function krSegs(c){                 // 연속된 Dentist 대사는 (같은 블록 안에서) 한 차례로 묶는다
+const krTurns = c => c.blocks.reduce((a, b) => a.concat(b.turns || []), []);
+function krSegs(c){                 // 10분 전체를 한 줄로: 연속된 Dentist 대사는 한 차례로 묶는다
   const segs = [];
-  c.blocks.forEach((b, bi) => (b.turns || []).forEach(t => {
+  krTurns(c).forEach(t => {
     const last = segs[segs.length-1];
-    if(t.who === "dr" && last && last.who === "dr" && last.bi === bi) last.lines.push(t);
-    else segs.push({ who:t.who, bi, lines:[t] });
-  }));
+    if(t.who === "dr" && last && last.who === "dr") last.lines.push(t);
+    else segs.push({ who:t.who, lines:[t] });
+  });
   return segs;
 }
 const koLine = t => t.ko || clean(t.en);
+const krScriptHTML = c => krTurns(c).map(t => '<div class="turn '+t.who+(t.who==="pt"?" dim":"")+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+mustTag({ must:t.ms })+'</div><div class="ko" style="color:var(--ink);font-size:15px">'+esc(koLine(t))+'</div></div>').join("");
+function krClock(sec, tgt, paused){
+  const r = sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
+  return '<div class="clockbox"><div class="row1"><div class="big '+cls+'" id="kBig">'+mmss(sec)+'</div>' +
+    '<div class="tgt">목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)'+(paused ? '<br><span style="color:var(--amber)">⏸ 시계 멈춤</span>' : "")+'</div></div>' +
+    '<div class="tbar"><i id="kBar" class="'+cls+'" style="width:'+Math.min(100, r/1.1*100)+'%"></i></div></div>';
+}
+function krTick(sec, tgt){
+  const r = sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
+  const g = $("kBig"); if(g){ g.textContent = mmss(sec); g.className = "big " + cls; }
+  const i = $("kBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
+  bar(Math.min(1, r));
+}
 function runKr(caseId, from){
   const c = CASES.find(x => x.id === caseId); if(!c) return;
   R.krFrom = from || "kr";
   LS.set("chk.case", c.id);
-  const segs = krSegs(c), tgt = caseSec(c), NB = c.blocks.length;
+  const segs = krSegs(c), tgt = caseSec(c);
   openRun(c.code + " · 한글 롤플레이", shortTitle(c));
-  const K = { state:"ready", i:0, t0:0, sec:0, timer:null, bt:new Array(NB).fill(0), bi:0, bStart:0, veil:true };
+  const K = { state:"ready", i:0, t0:0, sec:0, timer:null, veil:true };
   R.K = K;
   const auto = () => KOPT.tts && canSpeak && !!vKo;
   const now = () => K.t0 ? (Date.now() - K.t0) / 1000 : 0;
-  const blkHead = bi => { const b = c.blocks[bi]; return (CIRC[bi] || "#" + (bi+1)) + " " + b.name; };
-  const clock = () => {
-    const r = K.sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
-    const b = c.blocks[K.bi];
-    return '<div class="clockbox"><div class="row1"><div class="big '+cls+'" id="kBig">'+mmss(K.sec)+'</div>' +
-      '<div class="tgt">전체 목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br><span id="kBlk">블록 '+(K.bi+1)+' / '+NB+' · '+mmss(K.sec - K.bStart)+' / '+mmss(b.sec || 60)+'</span></div></div>' +
-      '<div class="tbar"><i id="kBar" class="'+cls+'" style="width:'+Math.min(100, r/1.1*100)+'%"></i></div></div>';
-  };
-  const tick = () => {
-    K.sec = now();
-    const r = K.sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
-    const g = $("kBig"); if(g){ g.textContent = mmss(K.sec); g.className = "big " + cls; }
-    const i = $("kBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
-    const k = $("kBlk"); if(k) k.textContent = "블록 " + (K.bi+1) + " / " + NB + " · " + mmss(K.sec - K.bStart) + " / " + mmss(c.blocks[K.bi].sec || 60);
-    bar(Math.min(1, r));
-  };
   const segHTML = s => s.who === "pt"
     ? '<div class="turn pt dim"><div class="who">Patient</div><div class="ko" style="color:var(--ink);font-size:15px">'+esc(koLine(s.lines[0]))+'</div></div>'
     : '<div class="turn dr dim"><div class="who">나 (Dentist) · 모범 대사</div>'+s.lines.map(t => '<div class="ko">'+esc(koLine(t))+mustTag({ must:t.ms })+'</div>').join("")+'</div>';
@@ -1797,7 +1795,7 @@ function runKr(caseId, from){
     let h = "";
     if(K.state === "ready"){
       const cue = c.cueCard || {};
-      h = '<div class="topic"><div class="cd">'+esc(c.code)+' · 블록 '+NB+'개 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
+      h = '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
         (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' +
         '<label>방식</label><div class="seg" id="kMode">' +
         '<button data-v="1" class="'+(KOPT.ai?"on":"")+'">AI 환자와 대화<br><small>음성 인식 · Claude 채점</small></button>' +
@@ -1808,7 +1806,7 @@ function runKr(caseId, from){
              "첫 화면에서 Claude 채점이 꺼져 있습니다. 켜 주세요.") + ' 지금은 혼자 하기로 합니다.</p>';
       }
       if(KOPT.ai && krAIok()){
-        h += '<p class="note">영어 ‘환자와 대화’와 같은 방식입니다. 한 차례 한국어로 말하고 <b>🎤 다 말했어요</b>를 누르면 AI 환자가 한국어로 대답합니다(대답을 만드는 동안 시계 멈춤). 블록의 환자 대사가 끝나면 다음 블록으로 저절로 넘어가고, <b>다음 블록 ›</b>으로 직접 넘길 수도 있습니다. 끝나면 Claude가 블록마다 꼭 말할 것을 채점합니다.</p>' +
+        h += '<p class="note">영어 ‘환자와 대화’와 같은 방식으로 10분을 처음부터 끝까지 한 번에 합니다. 한 차례 한국어로 말하고 <b>🎤 다 말했어요</b>를 누르면 AI 환자가 한국어로 대답합니다(대답을 만드는 동안 시계 멈춤). 환자 대사가 다 끝나고 마무리하면 저절로 끝나고, <b>■ 끝내기</b>로 언제든 끝낼 수 있습니다. 끝나면 Claude가 꼭 말할 것을 채점합니다.</p>' +
              (!vKo ? '<p class="note" style="color:var(--amber)">이 브라우저에 한국어 음성이 없어 환자 대답은 글로만 보일 수 있어요. PC의 Microsoft Edge를 권장합니다.</p>' : "") +
              '<p class="note">말하기 인식: '+(AI.stt === "scribe" ? "ElevenLabs Scribe(한국어)" : "브라우저 인식(한국어)")+' · 채점 모델: '+esc(AI.model)+' — 첫 화면 설정을 그대로 씁니다. 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
       }else{
@@ -1816,14 +1814,11 @@ function runKr(caseId, from){
         '<button data-v="1" class="'+(KOPT.tts?"on":"")+'">한국어로 읽어 주기<br><small>다 읽으면 내 차례로</small></button>' +
         '<button data-v="0" class="'+(!KOPT.tts?"on":"")+'">글로만 보기<br><small>‘다음’을 눌러 넘김</small></button></div>' +
         (KOPT.tts && !vKo ? '<p class="note" style="color:var(--red)">이 브라우저에 한국어 음성이 없어 글로만 나옵니다. PC의 Microsoft Edge로 열면 한국어 Natural 음성을 쓸 수 있어요.</p>' : "") +
-        '<p class="note">내 차례에는 블록 이름과 할 일만 보입니다. 한국어로 소리 내어 말하고 <b>다 말했어요</b>를 누르세요. 막히면 <b>모범 대사 보기</b>. 채점은 없습니다. 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
+        '<p class="note">10분 대본을 처음부터 끝까지 이어서 합니다. 내 차례에는 한국어로 소리 내어 말하고 <b>다 말했어요</b>를 누르세요. 막히면 <b>모범 대사 보기</b>. 채점은 없습니다.</p>';
       }
     }else{
-      const s = segs[K.i], b = c.blocks[s.bi];
-      h = clock() +
-        '<div class="topic" style="padding:12px 14px"><div class="cd">블록 '+esc(CIRC[s.bi] || s.bi+1)+' / '+NB+(b.start ? ' · 10분 중 '+esc(b.start)+'–'+esc(b.end) : "")+'</div>' +
-        '<div class="en" style="font-size:16px">'+esc(b.name)+'</div>'+(b.todo ? '<div class="ko">할 일: '+esc(b.todo)+'</div>' : "")+'</div>' +
-        '<div style="margin-top:14px">' + segs.slice(0, K.i).filter(x => x.bi === s.bi).map(segHTML).join("");
+      const s = segs[K.i];
+      h = krClock(K.sec, tgt) + '<div style="margin-top:14px">' + segs.slice(Math.max(0, K.i - 4), K.i).map(segHTML).join("");
       if(s.who === "pt"){
         h += '<div class="one pt" id="cur"><div class="who">PATIENT</div><div class="ko">'+esc(koLine(s.lines[0]))+'</div></div>';
       }else{
@@ -1850,15 +1845,11 @@ function runKr(caseId, from){
       if(R.K === K && K.state === "run" && K.i === at) setTimeout(() => { if(R.K === K && K.state === "run" && K.i === at) next(); }, 350);
     });
   };
-  const enter = () => {                 // 블록이 바뀌면 블록 시간을 끊는다
-    const bi = segs[K.i].bi;
-    if(bi !== K.bi){ K.bt[K.bi] += now() - K.bStart; K.bStart = now(); K.bi = bi; }
-  };
   const start = () => {
     if(KOPT.ai && krAIok()) return runKrAI(c.id);
     stopSpeak();
-    K.state = "run"; K.i = 0; K.t0 = Date.now(); K.sec = 0; K.bi = segs[0].bi; K.bStart = 0; K.bt.fill(0); K.veil = true;
-    K.timer = setInterval(tick, 250);
+    K.state = "run"; K.i = 0; K.t0 = Date.now(); K.sec = 0; K.veil = true;
+    K.timer = setInterval(() => { K.sec = now(); krTick(K.sec, tgt); }, 250);
     draw(); playPt();
   };
   const next = () => {
@@ -1866,7 +1857,7 @@ function runKr(caseId, from){
     stopSpeak();
     K.i++; K.veil = true;
     if(K.i >= segs.length) return finish();
-    enter(); draw(); playPt();
+    draw(); playPt();
   };
   const quit = () => {
     if(K.timer){ clearInterval(K.timer); K.timer = null; }
@@ -1875,36 +1866,30 @@ function runKr(caseId, from){
   };
   const finish = () => {
     clearInterval(K.timer); K.timer = null;
-    K.sec = now(); K.bt[K.bi] += K.sec - K.bStart; K.state = "done";
+    K.sec = now(); K.state = "done";
     ST.kr = ST.kr || {};
-    const list = (ST.kr[c.id] = (ST.kr[c.id] || []).concat({ s:Math.round(K.sec), t:tgt, ts:Date.now(), b:K.bt.map(Math.round) }).slice(-10));
+    const list = (ST.kr[c.id] = (ST.kr[c.id] || []).concat({ s:Math.round(K.sec), t:tgt, ts:Date.now() }).slice(-10));
     saveST();
     const [jc, jt] = judgeTime(K.sec, tgt), dev = Math.round((K.sec - tgt) / tgt * 100);
     const past = list.slice(-6, -1);
     openRun(c.code + " · 한글 롤플레이 결과", shortTitle(c));
     R.K = K;
-    let h = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(K.sec)+'</div>' +
-      '<div class="tgt">전체 목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%</div></div></div>' +
+    $("runBody").innerHTML = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(K.sec)+'</div>' +
+      '<div class="tgt">목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%</div></div></div>' +
       '<div class="judge '+jc+'">'+jt+'</div>' +
       (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s)).join(" · ")+'</div>' : "") +
-      '<h2>블록별 시간</h2><table class="kt"><tr><th>블록</th><th>목표</th><th>내 시간</th></tr>' +
-      c.blocks.map((b, i) => { const m = Math.round(K.bt[i]), t = b.sec || 60, d = (m - t) / t;
-        return '<tr><td>'+esc(blkHead(i))+'</td><td class="n">'+mmss(t)+'</td><td class="n'+(d > 0.2 ? " over" : d < -0.3 ? " under" : "")+'">'+mmss(m)+'</td></tr>'; }).join("") +
-      '</table><p class="note">빨강 = 목표보다 20% 넘게 김 · 주황 = 30% 넘게 짧음. 한국어는 영어와 말 속도가 달라 참고용입니다.</p>' +
-      '<h2>한국어 모범 대본</h2>' +
-      c.blocks.map((b, i) => '<div class="subj">'+esc(blkHead(i))+(b.todo ? ' · <span style="font-weight:400">'+esc(b.todo)+'</span>' : "")+'</div>' +
-        (b.turns || []).map(t => '<div class="turn '+t.who+(t.who==="pt"?" dim":"")+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+mustTag({ must:t.ms })+'</div><div class="ko" style="color:var(--ink);font-size:15px">'+esc(koLine(t))+'</div></div>').join("")).join("");
-    $("runBody").innerHTML = h;
+      '<p class="note">한국어는 영어와 말 속도가 달라 시간은 참고용입니다.</p>' +
+      '<h2>한국어 모범 대본</h2>' + krScriptHTML(c);
     bar(1);
     const first = SECS.find(x => x.caseId === c.id && x.idx === 0);
     const btns = [{ label:"목록으로", cls:"sec", go:quit }, { label:"다시", cls:"sec", go:() => runKr(c.id, R.krFrom) }];
-    if(first) btns.push({ label:"영어로 ① 블록 ›", go:() => { FROM = "case"; openSec(first.code); } });
+    if(first) btns.push({ label:"영어로 하기 ›", go:() => { FROM = "case"; openSec(first.code); } });
     dock(btns);
   };
   draw();
 }
 
-/* ── 한글 롤플레이 · AI 환자 + 채점 (영어 ‘환자와 대화’와 같은 방식, 케이스 전체) ── */
+/* ── 한글 롤플레이 · AI 환자 + 채점 (영어 ‘환자와 대화’와 같은 방식, 10분 전체를 한 번에) ── */
 function krMustKo(b){                 // must-say(영어)의 한국어 뜻: 그 문장이 들어 있는 Dentist 대사의 ko
   return (b.mustsay || []).map(m => {
     const nm = normT(m);
@@ -1912,9 +1897,12 @@ function krMustKo(b){                 // must-say(영어)의 한국어 뜻: 그 
     return hit.length ? hit.map(t => t.ko).join(" ") : m;
   });
 }
-function krChecks(b){
-  const out = String(b.todo || "").split(/\s*·\s*/).map(x => x.trim()).filter(Boolean);
-  krMustKo(b).forEach(k => { const x = "꼭 말할 것: " + k; if(!out.includes(x)) out.push(x); });
+function krChecks(c){                 // 10분 전체 체크리스트: 대본 순서대로 할 일 + 꼭 말할 것(한국어)
+  const out = [];
+  c.blocks.forEach(b => {
+    String(b.todo || "").split(/\s*·\s*/).map(x => x.trim()).filter(Boolean).forEach(x => { if(!out.includes(x)) out.push(x); });
+    krMustKo(b).forEach(k => { const x = "꼭 말할 것: " + k; if(!out.includes(x)) out.push(x); });
+  });
   return out;
 }
 async function krClaude(sys, msgs, maxTok, ms){
@@ -1940,38 +1928,32 @@ async function krClaude(sys, msgs, maxTok, ms){
   return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
 }
 const PATIENT_KR_SYS = [
-  "You play the PATIENT in a role-play for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
+  "You play the PATIENT in a 10-minute role-play for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
   "A Korean dentist is practising the whole consultation in KOREAN first, to learn the flow before doing it in English. You speak KOREAN only.",
-  "The consultation is split into sections. You are now in ONE section. Their words come from Korean speech recognition and may contain errors: guess what they meant.",
-  "STRICT SCOPE: you may only say the patient lines listed for this section, one at a time, in order, in natural spoken Korean (해요체) close to the given Korean line.",
-  "Never bring up any other worry, question or topic. No small talk. Nothing from other sections.",
+  "Their words come from Korean speech recognition and may contain errors: guess what they meant.",
+  "STRICT SCOPE: you may only say the patient lines listed below, one at a time, in order, in natural spoken Korean (해요체) close to the given Korean line.",
+  "Never bring up any other worry, question or topic. No small talk.",
   "Each reply is exactly one of these:",
-  "A) The next unused patient line from the list, when the dentist has answered the previous one.",
-  "B) A very short question asking what a word means, only if the dentist used medical jargon. At most once per word, and at most twice in total.",
-  "C) If every patient line has been used and the dentist has covered the topic or moved on: a very short acknowledgement in Korean (under 8 words, e.g. '네, 알겠어요.'), then the tag <<END>>. In the LAST section, a short closing thanks instead.",
-  "D) If every patient line has been used but the dentist is clearly still explaining: a one or two word backchannel such as '네.' or '아, 네.' Nothing more.",
-  "If the list has no unused lines left after the dentist's first turn and the dentist has said something on the topic, choose C.",
+  "A) The next unused patient line, when what the dentist just said fits it (they asked the question it answers, or finished the point it reacts to).",
+  "B) A very short question asking what a word means, only if the dentist used medical jargon. At most once per word, and at most three times in the whole consultation.",
+  "C) If the dentist is still explaining and the next line does not fit yet: a one or two word backchannel such as '네.' or '아, 네.' Nothing more. Do not skip ahead.",
+  "D) If every patient line has been used and the dentist is closing (summary, any questions, goodbye): a short closing thanks in Korean, then the tag <<END>>.",
   "Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI. Never switch to English except for drug or test names.",
   "Reply with the patient's spoken Korean words only (plus <<END>> when ending). No quotation marks, no stage directions, no translation."
 ].join("\n");
-async function patientReplyKr(c, bi, log){
-  const b = c.blocks[bi], NB = c.blocks.length;
-  const ptLines = (b.turns || []).filter(t => t.who === "pt").map(koLine);
+async function patientReplyKr(c, log){
+  const T = krTurns(c);
+  const ptLines = T.filter(t => t.who === "pt").map(koLine);
   const used = log.filter(x => x.who === "pt").length;
-  const prev = bi > 0 ? (c.blocks[bi-1].turns || []).slice(-3) : [];
   const sys = PATIENT_KR_SYS +
-    "\n\nSection " + (bi+1) + " of " + NB + (bi === NB-1 ? " (the LAST section)" : "") + ": " + b.name + (b.todo ? " (" + b.todo + ")" : "") +
-    ((c.cueCard && c.cueCard.setting) ? "\nScenario (cue card): " + c.cueCard.setting : "") +
+    ((c.cueCard && c.cueCard.setting) ? "\n\nScenario (cue card): " + c.cueCard.setting : "") +
     ((c.patient && c.patient.persona) ? "\nWho you are (for voice and mood only): " + c.patient.persona : "") +
-    (prev.length ? "\nJust before this section, the consultation went:\n" + prev.map(t => (t.who === "dr" ? "치과의사: " : "환자: ") + koLine(t)).join("\n") : "") +
-    "\n\nPatient lines for this section, in order (" + ptLines.length + " in total):\n" +
-    (ptLines.length ? ptLines.map((t,i) => (i+1) + ". " + t).join("\n") : "(none — the patient only listens and acknowledges)") +
-    "\n\nYou have spoken " + used + " time(s) so far in this section (including any first line already given and any clarification questions)." +
-    "\n\nWhat the dentist should cover in this section (for judging when it is done; never say this to the dentist):\n" + krChecks(b).map(x => "- " + x).join("\n") +
-    "\n\nModel script in Korean (for context only):\n" + (b.turns || []).map(t => (t.who === "dr" ? "치과의사: " : "환자: ") + koLine(t)).join("\n");
+    "\n\nPatient lines, in order (" + ptLines.length + " in total):\n" + ptLines.map((t,i) => (i+1) + ". " + t).join("\n") +
+    "\n\nYou have spoken " + used + " time(s) so far (including clarification questions and backchannels). Work out from the conversation which lines you have already used." +
+    "\n\nModel script in Korean (for context only — to see where each patient line belongs):\n" + T.map(t => (t.who === "dr" ? "치과의사: " : "환자: ") + koLine(t)).join("\n");
   const msgs = [];
   const push = (role, text) => { const l = msgs[msgs.length-1]; if(l && l.role === role) l.content += "\n" + text; else msgs.push({ role, content:text }); };
-  if(log.length && log[0].who === "pt") push("user", "(이 섹션은 환자가 먼저 말합니다.)");
+  if(log.length && log[0].who === "pt") push("user", "(진료가 시작됩니다. 환자가 먼저 말합니다.)");
   log.forEach(x => push(x.who === "dr" ? "user" : "assistant", x.who === "dr" ? "치과의사: " + x.en : x.en));
   if(!msgs.length || msgs[msgs.length-1].role !== "user") push("user", "(치과의사가 기다리고 있습니다.)");
   let txt = await krClaude(sys, msgs, 200, 30000);
@@ -1981,20 +1963,20 @@ async function patientReplyKr(c, bi, log){
   return { text: txt, end: end };
 }
 const KR_GRADE_SYS = [
-  "You review one section of a dental consultation that a Korean dentist practised in KOREAN, to learn the flow before the English ADC Part 2 OSCE (Australian dental licensing exam).",
+  "You review a 10-minute dental consultation that a Korean dentist practised in KOREAN, to learn the flow before the English ADC Part 2 OSCE (Australian dental licensing exam).",
   "Their words come from Korean speech recognition: ignore recognition errors, fillers, spacing and small grammar slips.",
-  "You get a numbered checklist (Korean) of points the dentist must cover in this section, the model dentist script in Korean, and the conversation.",
-  "For each checklist point, decide if the candidate clearly covered it. Different wording is fine. Be fair but not generous: a vague hint is not covered.",
+  "You get a numbered checklist (Korean) of points the dentist must cover, in script order, the model dentist script in Korean, and the conversation.",
+  "For each checklist point, decide if the candidate clearly covered it anywhere in the consultation. Different wording is fine. Be fair but not generous: a vague hint is not covered.",
   "Reply with JSON only, no other text:",
-  "{\"hit\":[true,false,...],\"note\":\"한국어 두 문장 이내 — 잘한 점 하나와 고칠 점 하나\",\"miss\":\"가장 중요한 빠진 내용 한국어로 짧게, 없으면 빈 문자열\"}",
+  "{\"hit\":[true,false,...],\"note\":\"한국어 세 문장 이내 — 잘한 점 하나, 고칠 점 하나, 흐름(순서) 한 마디\",\"miss\":\"가장 중요한 빠진 내용 한국어로 짧게, 없으면 빈 문자열\"}",
   "hit must have exactly one boolean per checklist point, in order."
 ].join("\n");
-async function gradeKr(b, checks, log){
-  const user = "Section: " + b.name + "\nChecklist:\n" + checks.map((x,i) => (i+1) + ". " + x).join("\n") +
-    "\n\nModel dentist script (Korean):\n" + (b.turns || []).filter(t => t.who === "dr").map(koLine).join(" ") +
+async function gradeKr(c, checks, log){
+  const user = "Checklist:\n" + checks.map((x,i) => (i+1) + ". " + x).join("\n") +
+    "\n\nModel dentist script (Korean):\n" + krTurns(c).filter(t => t.who === "dr").map(koLine).join(" ") +
     "\n\nConversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
     "\n\nJudge only the candidate's lines.";
-  const txt = await krClaude(KR_GRADE_SYS, [{ role:"user", content:user }], 500, 60000);
+  const txt = await krClaude(KR_GRADE_SYS, [{ role:"user", content:user }], 1500, 90000);
   const m = txt.match(/\{[\s\S]*\}/);
   if(!m) throw new Error("결과를 읽지 못했습니다.");
   const j = JSON.parse(m[0]);
@@ -2003,72 +1985,45 @@ async function gradeKr(b, checks, log){
 
 function runKrAI(caseId){
   const c = CASES.find(x => x.id === caseId); if(!c) return;
-  const NB = c.blocks.length, tgt = caseSec(c);
+  const tgt = caseSec(c), T = krTurns(c), checks = krChecks(c);
+  const PT_N = T.filter(t => t.who === "pt").length;
   openRun(c.code + " · 한글 롤플레이 (AI 환자)", shortTitle(c));
   resetAttempt();
-  const W = { state:"pt", bi:0, acc:0, seg:0, sec:0, timer:null, logs:c.blocks.map(() => []), bt:new Array(NB).fill(0), seen:new Array(NB).fill(false),
-              b0:0, gen:0, tok:0, ending:false, userStop:false, note:"", thinkMsg:"" };
+  const W = { state:"pt", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false };
   R.W = W;
   const now = () => W.acc + (W.seg ? (Date.now() - W.seg) / 1000 : 0);
   const clockOn = () => { if(!W.seg) W.seg = Date.now(); };
   const clockOff = () => { if(W.seg){ W.acc += (Date.now() - W.seg) / 1000; W.seg = 0; } };
-  const alive = g => R.W === W && !W.ending && (g == null || g === W.gen);
-  const B = () => c.blocks[W.bi];
-  const blkLabel = i => (CIRC[i] || "#" + (i+1)) + " " + c.blocks[i].name;
+  const alive = () => R.W === W && !W.ending;
 
-  const clock = () => {
-    const r = W.sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
-    return '<div class="clockbox"><div class="row1"><div class="big '+cls+'" id="kBig">'+mmss(W.sec)+'</div>' +
-      '<div class="tgt">전체 목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br><span id="kBlk">블록 '+(W.bi+1)+' / '+NB+' · '+mmss(W.sec - W.b0)+' / '+mmss(B().sec || 60)+'</span>' +
-      (W.state === "think" ? '<br><span style="color:var(--amber)">⏸ 시계 멈춤</span>' : "")+'</div></div>' +
-      '<div class="tbar"><i id="kBar" class="'+cls+'" style="width:'+Math.min(100, r/1.1*100)+'%"></i></div></div>';
-  };
-  const tick = () => {
-    W.sec = now();
-    const r = W.sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
-    const g = $("kBig"); if(g){ g.textContent = mmss(W.sec); g.className = "big " + cls; }
-    const i = $("kBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
-    const k = $("kBlk"); if(k) k.textContent = "블록 " + (W.bi+1) + " / " + NB + " · " + mmss(W.sec - W.b0) + " / " + mmss(B().sec || 60);
-    bar(Math.min(1, r));
-  };
   const draw = () => {
     if(R.W !== W || W.state === "done" || W.state === "grading") return;
-    const b = B(), checks = krChecks(b), log = W.logs[W.bi];
-    let h = clock() +
-      '<div class="topic" style="padding:12px 14px"><div class="cd">블록 '+esc(CIRC[W.bi] || W.bi+1)+' / '+NB+(b.start ? ' · 10분 중 '+esc(b.start)+'–'+esc(b.end) : "")+'</div>' +
-      '<div class="en" style="font-size:16px">'+esc(b.name)+'</div>'+(b.todo ? '<div class="ko">할 일: '+esc(b.todo)+'</div>' : "")+'</div>' +
-      (checks.length ? '<button class="linkbtn" id="kHintBtn">'+(WOPT.hint ? "▾ 꼭 말할 것 숨기기" : "▸ 꼭 말할 것 보기 (힌트)")+'</button>' +
-        (WOPT.hint ? '<ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+checks.map(x => '<li>'+esc(x)+'</li>').join("")+'</ul>' : "") : "") +
-      '<div style="margin-top:14px">' + log.map((x, i) =>
-        '<div class="turn '+x.who+(i === log.length - 1 ? " now" : "")+'"'+(i === log.length - 1 ? ' id="kLast"' : "")+'><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div>' +
+    let h = krClock(W.sec, tgt, W.state === "think") +
+      '<button class="linkbtn" id="kHintBtn">'+(WOPT.hint ? "▾ 꼭 말할 것 숨기기" : "▸ 꼭 말할 것 보기 (힌트)")+'</button>' +
+      (WOPT.hint ? '<ol style="margin:4px 0 0;padding-left:22px;font-size:14px">'+checks.map(x => '<li>'+esc(x)+'</li>').join("")+'</ol>' : "") +
+      '<div style="margin-top:14px">' + W.log.map((x, i) =>
+        '<div class="turn '+x.who+(i === W.log.length - 1 ? " now" : "")+'"'+(i === W.log.length - 1 ? ' id="kLast"' : "")+'><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div>' +
         '<div class="en">'+esc(x.en)+'</div></div>').join("") + '</div>';
     if(W.state === "me") h += '<div class="heard live"><div class="lb">'+(AI.stt === "scribe" ? "녹음 중 — 한국어로 말하고 ‘다 말했어요’" : "듣는 중 — 한국어로 말하고 ‘다 말했어요’")+'</div><div class="said" id="liveTxt">'+esc(A.live || "…")+'</div></div>';
     if(W.state === "think") h += '<div class="heard"><div class="lb">'+esc(W.thinkMsg || "환자가 생각 중…")+'</div></div>';
     if(W.note) h += '<div class="heard"><div class="er">'+esc(W.note)+'</div></div>';
     $("runBody").innerHTML = h;
-    const hb = $("kHintBtn"); if(hb) hb.onclick = () => { WOPT.hint = !WOPT.hint; draw(); };
+    $("kHintBtn").onclick = () => { WOPT.hint = !WOPT.hint; draw(); };
     const last = $("kLast"); if(last) last.scrollIntoView({ block:"center", behavior:"smooth" });
-    const nextLbl = W.bi < NB - 1 ? "다음 블록 ›" : "마지막 · 끝내기";
-    const endB = { label:"■ 끝내기", cls:"sec", go:endAll }, nb = { label:nextLbl, cls:"sec", go:skipBlock };
-    if(W.state === "me") dock([endB, nb, { label:"🎤 다 말했어요", cls:"live", go:myDone }]);
-    else if(W.state === "pt") dock([endB, nb, { label:"건너뛰기 ›", cls:"sec", go:() => { W.tok++; stopSpeak(); W.ptEnd ? nextBlock() : myTurn(); } }]);
-    else if(W.state === "think") dock([endB, nb, { label:W.thinkMsg || "환자가 생각 중…", off:true, go:() => {} }]);
-    else if(W.state === "idleMic") dock([endB, nb, { label:"🎤 다시 말하기", cls:"mic", go:myTurn }]);
+    const endB = { label:"■ 끝내기", cls:"sec", go:endAll };
+    if(W.state === "me") dock([endB, { label:"🎤 다 말했어요", cls:"live", go:myDone }]);
+    else if(W.state === "pt") dock([endB, { label:"건너뛰기 ›", cls:"sec", go:() => { W.tok++; stopSpeak(); W.ptEnd ? endAll() : myTurn(); } }]);
+    else if(W.state === "think") dock([endB, { label:W.thinkMsg || "환자가 생각 중…", off:true, go:() => {} }]);
+    else if(W.state === "idleMic") dock([endB, { label:"🎤 다시 말하기", cls:"mic", go:myTurn }]);
   };
 
-  const startBlock = bi => {
-    W.gen++; W.bi = bi; W.seen[bi] = true; W.b0 = now(); W.note = "";
-    const first = (c.blocks[bi].turns || [])[0];
-    if(first && first.who === "pt"){ const t = koLine(first); W.logs[bi].push({ who:"pt", en:t }); patientSays(t, false); }
-    else myTurn();
-  };
-  const patientSays = (text, endBlock) => {
+  const patientSays = (text, isEnd) => {
     if(!alive()) return;
-    W.state = "pt"; W.ptEnd = !!endBlock; clockOn(); draw();
-    const tok = ++W.tok, g = W.gen;
+    W.state = "pt"; W.ptEnd = !!isEnd; clockOn(); draw();
+    const tok = ++W.tok;
     speak(text, "ko", () => {
-      if(!alive(g) || tok !== W.tok || W.state !== "pt") return;
-      endBlock ? nextBlock() : myTurn();
+      if(!alive() || tok !== W.tok || W.state !== "pt") return;
+      isEnd ? endAll() : myTurn();
     });
   };
   const myTurn = () => {
@@ -2085,56 +2040,33 @@ function runKrAI(caseId){
   };
   const onMyTurn = async (said) => {
     said = (said || "").trim();
-    const g = W.gen;
-    if(!alive(g)) return;
+    if(!alive()) return;
     if(!W.userStop){                       // 인식이 저절로 멈췄다
       if(said){ W.userStop = true; clockOff(); }
       else { A.phase = "idle"; clockOff(); W.note = A.err || "음성 인식이 멈췄습니다. 다시 말해 주세요."; W.state = "idleMic"; draw(); return; }
     }
     W.note = "";
     if(!said){ W.note = A.err || "말을 알아듣지 못했습니다. 다시 말해 주세요."; W.state = "idleMic"; draw(); return; }
-    const log = W.logs[W.bi];
-    log.push({ who:"dr", en:said });
+    W.log.push({ who:"dr", en:said });
     W.state = "think"; W.thinkMsg = "환자가 생각 중…"; draw();
     let reply;
-    try{ reply = await patientReplyKr(c, W.bi, log); }
-    catch(e){ if(!alive(g)) return; W.note = "환자 대답 실패: " + e.message; W.state = "idleMic"; draw(); return; }
-    if(!alive(g)) return;
-    // 상한: 이 블록 환자 대사 수 + 확인 질문 2번을 넘으면 다음 블록으로
-    const cap = (B().turns || []).filter(t => t.who === "pt").length + 2;
-    const end = reply.end || log.filter(x => x.who === "pt").length + 1 >= cap;
-    if(reply.text) log.push({ who:"pt", en:reply.text });
-    patientSays(reply.text || "네.", end);
-  };
-  const closeBlock = () => { W.bt[W.bi] += now() - W.b0; };
-  const nextBlock = () => {
+    try{ reply = await patientReplyKr(c, W.log); }
+    catch(e){ if(!alive()) return; W.note = "환자 대답 실패: " + e.message; W.state = "idleMic"; draw(); return; }
     if(!alive()) return;
-    stopSpeak(); resetAttempt();
-    closeBlock();
-    if(W.bi + 1 >= NB) return finishAll();
-    startBlock(W.bi + 1);
-  };
-  const skipBlock = () => {               // 말하는 중이면 지금까지 말한 것을 기록하고 넘어간다
-    if(!alive()) return;
-    W.tok++; stopSpeak();
-    if(A.phase === "listen"){
-      W.gen++; const bi = W.bi;
-      W.state = "think"; W.thinkMsg = "넘어가는 중…"; draw();
-      A.onFinish = said => { said = (said || "").trim(); if(said) W.logs[bi].push({ who:"dr", en:said }); nextBlock(); };
-      A.redraw = () => { if(A.phase === "idle" && A.err){ A.onFinish = null; nextBlock(); } };
-      listenStop();
-    }else{ W.gen++; nextBlock(); }
+    // 안전장치: 환자 차례가 대본 환자 대사 수 + 10번을 넘으면 마무리
+    const end = reply.end || W.log.filter(x => x.who === "pt").length + 1 >= PT_N + 10;
+    if(reply.text) W.log.push({ who:"pt", en:reply.text });
+    patientSays(reply.text || "감사합니다.", end);
   };
   const endAll = () => {
     if(!alive()) return;
     W.tok++; stopSpeak();
-    if(A.phase === "listen"){
-      W.gen++; const bi = W.bi;
+    if(A.phase === "listen"){                // 말하던 중이면 지금까지 말한 것을 기록하고 끝낸다
       W.state = "think"; W.thinkMsg = "마무리 중…"; draw();
-      A.onFinish = said => { said = (said || "").trim(); if(said) W.logs[bi].push({ who:"dr", en:said }); closeBlock(); finishAll(); };
-      A.redraw = () => { if(A.phase === "idle" && A.err){ A.onFinish = null; closeBlock(); finishAll(); } };
+      A.onFinish = said => { said = (said || "").trim(); if(said) W.log.push({ who:"dr", en:said }); finishAll(); };
+      A.redraw = () => { if(A.phase === "idle" && A.err){ A.onFinish = null; finishAll(); } };
       listenStop();
-    }else{ closeBlock(); finishAll(); }
+    }else finishAll();
   };
 
   const finishAll = async () => {
@@ -2143,75 +2075,49 @@ function runKrAI(caseId){
     resetAttempt(); stopSpeak();
     W.state = "grading";
     ST.kr = ST.kr || {};
-    const rec = { s:Math.round(W.sec), t:tgt, ts:Date.now(), b:W.bt.map(Math.round), ai:true };
+    const rec = { s:Math.round(W.sec), t:tgt, ts:Date.now(), ai:true };
     const list = (ST.kr[c.id] = (ST.kr[c.id] || []).concat(rec).slice(-10));
     saveST();
-    const checks = c.blocks.map(krChecks);
-    const G = new Array(NB).fill(null);
-    let done = 0;
-    const todo = c.blocks.map((b, i) => i).filter(i => W.seen[i] && checks[i].length);
-    const busy = () => {
-      if(R.W !== W) return;
-      $("runBody").innerHTML = '<div class="score">'+mmss(W.sec)+'</div><div class="heard"><div class="lb">Claude가 블록마다 꼭 말할 것을 확인하는 중… '+done+' / '+todo.length+'</div></div>';
-    };
     openRun(c.code + " · 한글 롤플레이 결과", shortTitle(c));
     R.W = W;
     dock([{ label:"채점 중…", off:true, go:() => {} }]);
-    busy();
-    await Promise.all(todo.map(async i => {
-      const said = W.logs[i].filter(x => x.who === "dr");
-      if(!said.length) G[i] = { hit: checks[i].map(() => false), note:"이 블록에서는 말한 내용이 없어요.", miss:"" };
-      else{
-        try{ G[i] = await gradeKr(c.blocks[i], checks[i], W.logs[i]); }
-        catch(e){ G[i] = { err:e.message }; }
-      }
-      done++; busy();
-    }));
-    let hitN = 0, totN = 0;
-    todo.forEach(i => { if(G[i] && G[i].hit){ hitN += G[i].hit.filter(Boolean).length; totN += G[i].hit.length; } });
-    if(totN){ rec.cov = hitN / totN; saveST(); }
+    $("runBody").innerHTML = '<div class="score">'+mmss(W.sec)+'</div><div class="heard"><div class="lb">Claude가 꼭 말할 것 '+checks.length+'개를 확인하는 중…</div></div>';
+    let G = null;
+    if(!W.log.some(x => x.who === "dr")) G = { hit: checks.map(() => false), note:"말한 내용이 없어요.", miss:"" };
+    else{ try{ G = await gradeKr(c, checks, W.log); } catch(e){ G = { err:e.message }; } }
+    const hitN = G.hit ? G.hit.filter(Boolean).length : 0;
+    if(G.hit){ rec.cov = hitN / checks.length; saveST(); }
     W.state = "done";
     if(R.W !== W) return;                 // 그사이 다른 화면으로 갔다 — 기록만 남긴다
     const [jc, jt] = judgeTime(W.sec, tgt), dev = Math.round((W.sec - tgt) / tgt * 100);
     const past = list.slice(-6, -1);
     let h = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(W.sec)+'</div>' +
-      '<div class="tgt">전체 목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%'+(totN ? ' · 꼭 말할 것 <b>'+hitN+' / '+totN+'</b>' : "")+'</div></div></div>' +
+      '<div class="tgt">목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%'+(G.hit ? ' · 꼭 말할 것 <b>'+hitN+' / '+checks.length+'</b>' : "")+'</div></div></div>' +
       '<div class="judge '+jc+'">'+jt+'</div>' +
       (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s) + (x.cov != null ? " (" + Math.round(x.cov*100) + "%)" : "")).join(" · ")+'</div>' : "") +
-      '<h2>블록별</h2><table class="kt"><tr><th>블록</th><th>내 시간 / 목표</th><th>체크</th></tr>' +
-      c.blocks.map((b, i) => {
-        const m = Math.round(W.bt[i]), t = b.sec || 60, d = (m - t) / t, g = G[i];
-        const sc = !W.seen[i] ? "안 함" : !g ? "—" : g.err ? "채점 실패" : g.hit.filter(Boolean).length + " / " + g.hit.length;
-        return '<tr><td>'+esc(blkLabel(i))+'</td><td class="n'+(W.seen[i] && d > 0.2 ? " over" : W.seen[i] && d < -0.3 ? " under" : "")+'">'+(W.seen[i] ? mmss(m) : "—")+' / '+mmss(t)+'</td><td class="n">'+sc+'</td></tr>';
-      }).join("") + '</table>' +
-      '<p class="note">빨강 = 목표보다 20% 넘게 김 · 주황 = 30% 넘게 짧음. 한국어는 영어와 말 속도가 달라 시간은 참고용입니다.</p>';
-    c.blocks.forEach((b, i) => {
-      if(!W.seen[i]) return;
-      const g = G[i];
-      h += '<div class="subj" style="margin-top:22px">'+esc(blkLabel(i))+'</div>';
-      if(g && g.err) h += '<div class="heard"><div class="er">채점 실패: '+esc(g.err)+'</div></div>';
-      else if(g){
-        h += '<div class="heard"><div class="lb">Claude 평가 · 꼭 말할 것 '+g.hit.filter(Boolean).length+' / '+g.hit.length+'</div><div class="fb">'+esc(g.note)+'</div>'+(g.miss ? '<div class="fb"><b>빠진 것:</b> '+esc(g.miss)+'</div>' : "")+'</div>' +
-          checks[i].map((x, k) => '<div class="chk'+(g.hit[k] ? " on" : "")+'"><span class="bx"></span><span>'+esc(x)+'</span><span class="ai '+(g.hit[k]?"o":"x")+'">'+(g.hit[k]?"말함":"빠짐")+'</span></div>').join("");
-      }
-      h += '<details style="margin-top:6px"><summary class="linkbtn">오늘 대화 ('+W.logs[i].length+'줄)</summary>' +
-        (W.logs[i].length ? W.logs[i].map(x => '<div class="turn '+x.who+'"><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div><div class="en">'+esc(x.en)+'</div></div>').join("") : '<p class="note">대화 기록이 없습니다.</p>') +
-        '</details><details><summary class="linkbtn">한국어 모범 대본</summary>' +
-        (b.turns || []).map(t => '<div class="turn '+t.who+(t.who==="pt"?" dim":"")+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+mustTag({ must:t.ms })+'</div><div class="ko" style="color:var(--ink);font-size:15px">'+esc(koLine(t))+'</div></div>').join("") +
-        '</details>';
-    });
+      '<p class="note">한국어는 영어와 말 속도가 달라 시간은 참고용입니다.</p>';
+    if(G.err) h += '<div class="heard"><div class="er">채점 실패: '+esc(G.err)+'</div></div>';
+    else{
+      h += '<div class="heard"><div class="lb">Claude 평가 · 꼭 말할 것 '+hitN+' / '+checks.length+'</div><div class="fb">'+esc(G.note)+'</div>'+(G.miss ? '<div class="fb"><b>빠진 것:</b> '+esc(G.miss)+'</div>' : "")+'</div>' +
+        checks.map((x, k) => '<div class="chk'+(G.hit[k] ? " on" : "")+'"><span class="bx"></span><span>'+esc(x)+'</span><span class="ai '+(G.hit[k]?"o":"x")+'">'+(G.hit[k]?"말함":"빠짐")+'</span></div>').join("");
+    }
+    h += '<details style="margin-top:10px"><summary class="linkbtn">오늘 대화 ('+W.log.length+'줄)</summary>' +
+      (W.log.length ? W.log.map(x => '<div class="turn '+x.who+'"><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div><div class="en">'+esc(x.en)+'</div></div>').join("") : '<p class="note">대화 기록이 없습니다.</p>') +
+      '</details><details><summary class="linkbtn">한국어 모범 대본</summary>' + krScriptHTML(c) + '</details>';
     $("runBody").innerHTML = h;
     bar(1);
     const first = SECS.find(x => x.caseId === c.id && x.idx === 0);
     const back = () => R.krFrom === "case" ? drawPick("case") : drawKr();
     const btns = [{ label:"목록으로", cls:"sec", go:back }, { label:"다시", cls:"sec", go:() => runKrAI(c.id) }];
-    if(first) btns.push({ label:"영어로 ① 블록 ›", go:() => { FROM = "case"; openSec(first.code); } });
+    if(first) btns.push({ label:"영어로 하기 ›", go:() => { FROM = "case"; openSec(first.code); } });
     dock(btns);
   };
 
-  W.timer = setInterval(tick, 250);
+  W.timer = setInterval(() => { W.sec = now(); krTick(W.sec, tgt); }, 250);
   clockOn();
-  startBlock(0);
+  const first = T[0];
+  if(first && first.who === "pt"){ const t = koLine(first); W.log.push({ who:"pt", en:t }); patientSays(t, false); }
+  else myTurn();
 }
 
 /* ── 랜덤 ── */
