@@ -39,7 +39,17 @@
   .ent{background:var(--card);border:1px solid var(--rule);border-top:4px solid var(--ink);border-radius:3px;padding:16px 14px;text-align:left}
   .ent.rnd{border-top-color:var(--teal)}
   .ent.typ{border-top-color:var(--amber)}
+  .ent.kr{border-top-color:#6B4E9B}
   .ent.wide{grid-column:1 / -1}
+  /* 한글 롤플레이 */
+  .kmodel{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule);font-size:16px;line-height:1.6}
+  .kmodel div{margin-bottom:5px}
+  .kmodel.veil{filter:blur(6px);user-select:none}
+  .row.krrow .cd{color:#6B4E9B}
+  table.kt{width:100%;border-collapse:collapse;font-size:14px;background:var(--card)}
+  table.kt td,table.kt th{border:1px solid var(--rule);padding:6px 8px;text-align:left}
+  table.kt td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  table.kt td.over{color:var(--red);font-weight:600} table.kt td.under{color:var(--amber)}
   .ent.cont{border-top-color:var(--rule);padding:12px 14px}
   .ent .t{font-weight:700;font-size:16.5px}
   .ent .d{font-size:13px;color:var(--ink-soft);margin-top:4px;line-height:1.4}
@@ -188,6 +198,7 @@
       <button class="ent" id="goCase"><div class="t">케이스별</div><div class="d">과목 → 케이스 → 블록 ①②③</div></button>
       <button class="ent typ" id="goType"><div class="t">블록 종류별</div><div class="d">57케이스의 같은 종류 블록을 모아서</div></button>
       <button class="ent rnd wide" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">과목 · 블록 종류를 고르면 무작위로 출제 (놓친 것 위주 가능)</div></button>
+      <button class="ent kr wide" id="goKr"><div class="t">한글 롤플레이 (케이스 전체)</div><div class="d">케이스 하나를 처음부터 끝까지 한국어로 — 흐름을 먼저 익히고, 끝나면 영어로</div></button>
       <button class="ent cont wide hide" id="goLast"><div class="t" id="lastT"></div><div class="d" id="lastD"></div></button>
     </div>
     <p class="note" id="sumLine"></p>
@@ -204,6 +215,8 @@
     <div style="display:flex;gap:8px"><select id="vPtSel" style="flex:1"></select><button class="chip" id="vPtTry" style="flex:none">▶ 듣기</button></div>
     <label for="vDrSel">Dentist 목소리 (모범 대본 · 정답)</label>
     <div style="display:flex;gap:8px"><select id="vDrSel" style="flex:1"></select><button class="chip" id="vDrTry" style="flex:none">▶ 듣기</button></div>
+    <label for="vKoSel">한글 롤플레이 환자 목소리 (한국어)</label>
+    <div style="display:flex;gap:8px"><select id="vKoSel" style="flex:1"></select><button class="chip" id="vKoTry" style="flex:none">▶ 듣기</button></div>
     <p class="note" id="voiceNote"></p>
     <label for="engine">정답 음성 (한→영 확인할 때)</label>
     <select id="engine">
@@ -465,8 +478,12 @@ function pickVoices(vs){
   const sDr = byName(LS.get("sec.vdr", "")), sPt = byName(LS.get("sec.vpt", ""));
   vDr = sDr || VOICES[0] || null;
   vPt = sPt || VOICES.find(v => v !== vDr && voiceScore(v) >= voiceScore(vDr) - 9) || VOICES.find(v => v !== vDr) || vDr;
+  KO_VOICES = (vs || []).filter(v => (v.lang || "").replace("_","-").toLowerCase().startsWith("ko")).sort((a,b) => koScore(b) - koScore(a));
+  vKo = KO_VOICES.find(v => v.name === LS.get("blk.vko", "")) || KO_VOICES[0] || null;
   fillVoiceSelects();
 }
+let vKo = null, KO_VOICES = [];
+function koScore(v){ return /natural/i.test(v.name) ? 20 : /online|neural/i.test(v.name) ? 12 : /google/i.test(v.name) ? 3 : 0; }
 function voiceLabel(v){
   return v.name.replace(/^Microsoft\s+/,"").replace(/\s*-\s*English\s*/,"  · ").replace(/[()]/g,"") + (/natural/i.test(v.name) ? "  ★" : "");
 }
@@ -476,6 +493,12 @@ function fillVoiceSelects(){
   const opts = VOICES.map(v => '<option value="'+esc(v.name)+'">'+esc(voiceLabel(v))+'  ['+esc(v.lang)+']</option>').join("");
   d.innerHTML = opts; p.innerHTML = opts;
   if(vDr) d.value = vDr.name; if(vPt) p.value = vPt.name;
+  const k = $("vKoSel");
+  if(k){
+    k.innerHTML = KO_VOICES.length ? KO_VOICES.map(v => '<option value="'+esc(v.name)+'">'+esc(v.name.replace(/^Microsoft\s+/,"").replace(/[()]/g,""))+(/natural/i.test(v.name) ? "  ★" : "")+'  ['+esc(v.lang)+']</option>').join("")
+      : '<option>이 브라우저에는 한국어 음성이 없습니다 — 환자 대사는 글로만 나옵니다</option>';
+    if(vKo) k.value = vKo.name;
+  }
   const nat = VOICES.filter(v => /natural/i.test(v.name) && (v.lang||"").replace("_","-").startsWith("en-AU")).length;
   const n = $("voiceNote"); if(n) n.textContent = nat ? "호주 Natural 음성 " + nat + "개를 찾았어요 (★). Edge 온라인 음성이라 인터넷이 필요합니다."
     : "이 브라우저에는 호주 Natural 음성이 없습니다. PC의 Microsoft Edge로 열면 Natasha · William 같은 Natural 음성(★)을 고를 수 있어요.";
@@ -530,13 +553,13 @@ function speak(text, who, onEnd){
   if(!canSpeak || !t){ setTimeout(() => { if(tok === speakToken) onEnd && onEnd(); }, 300); return; }
   const busy = speechSynthesis.speaking || speechSynthesis.pending;
   if(busy) speechSynthesis.cancel();            // 끄자마자 바로 말하면 첫소리가 먹힌다
-  const v = who === "pt" ? vPt : vDr;
+  const v = who === "ko" ? vKo : (who === "pt" ? vPt : vDr);
   const parts = chunkText(t); let i = 0;
   const next = () => {
     if(tok !== speakToken) return;
     if(i >= parts.length){ markSound(); stopKeepAlive(); onEnd && onEnd(); return; }
     const u = new SpeechSynthesisUtterance(parts[i++]);
-    if(v){ u.voice = v; u.lang = v.lang; } else u.lang = "en-AU";
+    if(v){ u.voice = v; u.lang = v.lang; } else u.lang = who === "ko" ? "ko-KR" : "en-AU";
     u.rate = opt.rate; u.pitch = (who === "pt" && vPt === vDr) ? 1.08 : 1.0;
     let moved = false; const go = () => { if(!moved){ moved = true; markSound(); next(); } };
     u.onstart = markSound; u.onend = go; u.onerror = go;
@@ -861,6 +884,8 @@ function show(id){
   stopSpeak(); resetAttempt();
   if(R.W && R.W.timer){ clearInterval(R.W.timer); }
   if(id !== "s-run") R.W = null;
+  if(R.K && R.K.timer){ clearInterval(R.K.timer); R.K.timer = null; }
+  if(id !== "s-run") R.K = null;
   document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
   $(id).classList.add("on");
   if(id !== "s-run"){ $("dock").classList.add("hide"); bar(0); }
@@ -926,6 +951,8 @@ function secStatText(k){ const d = document.createElement("div"); d.innerHTML = 
 $("rate").onchange = e => { opt.rate = parseFloat(e.target.value); };
 $("vDrSel").onchange = e => { const v = VOICES.find(x => x.name === e.target.value); if(v){ vDr = v; LS.set("sec.vdr", v.name); speak("Hello. Let me explain what is happening with your gums.", "dr"); } };
 $("vPtSel").onchange = e => { const v = VOICES.find(x => x.name === e.target.value); if(v){ vPt = v; LS.set("sec.vpt", v.name); speak("Really? I thought everyone's gums bleed a bit.", "pt"); } };
+$("vKoSel").onchange = e => { const v = KO_VOICES.find(x => x.name === e.target.value); if(v){ vKo = v; LS.set("blk.vko", v.name); speak("선생님, 이 치아가 너무 아파요.", "ko"); } };
+$("vKoTry").onclick = () => speak("선생님, 이 치아가 너무 아파요.", "ko");
 $("vDrTry").onclick = () => speak("Hello. Let me explain what is happening with your gums.", "dr");
 $("vPtTry").onclick = () => speak("Really? I thought everyone's gums bleed a bit.", "pt");
 if(canSpeak && "onvoiceschanged" in speechSynthesis) speechSynthesis.addEventListener("voiceschanged", () => pickVoices(speechSynthesis.getVoices()));
@@ -968,6 +995,7 @@ $("resetStats").onclick = () => {
 $("goCase").onclick = () => drawPick("case");
 $("goType").onclick = () => drawPick("type");
 $("goRand").onclick = drawRand;
+$("goKr").onclick = drawKr;
 $("goLast").onclick = () => { const l = byCode(LS.get("blk.last", "")); if(l){ FROM = "case"; openSec(l.code); } };
 
 /* ── 골라서 하기: 케이스별 · 블록 종류별 ── */
@@ -981,7 +1009,7 @@ function partHTML(key, title, rows, mode, cur){
   const done = rows.filter(x => isDone(x.code)).length;
   return '<div class="part'+(openPart[mode] === key ? " open" : "")+(cur ? " cur" : "")+'" data-p="'+esc(key)+'">' +
     '<button class="ph"><span class="pt">'+title+'</span><span class="pc">'+done+' / '+rows.length+'</span><span class="arrow">›</span></button>' +
-    '<div class="list">' + rows.map(x => blockRow(x, mode === "type")).join("") + '</div></div>';
+    '<div class="list">' + (mode === "case" && rows.length ? krRow(key) : "") + rows.map(x => blockRow(x, mode === "type")).join("") + '</div></div>';
 }
 function drawPick(mode){
   mode = mode || FROM; if(mode !== "type") mode = "case";
@@ -1014,6 +1042,7 @@ function drawPick(mode){
     document.querySelectorAll(".part").forEach(x => x.classList.toggle("open", x.dataset.p === openPart[mode]));
   });
   document.querySelectorAll("#parts .row").forEach(b => b.onclick = () => { FROM = mode; openSec(b.dataset.c); });
+  document.querySelectorAll("#parts .krrow").forEach(b => b.onclick = () => runKr(b.dataset.k, "case"));
   const o = document.querySelector(".part.open"); if(o) setTimeout(() => o.scrollIntoView({ block:"start" }), 0);
 }
 
@@ -1686,6 +1715,172 @@ function runDeck(items, title, onBack){
     const miss = R.missList.map(it => Object.assign({}, it, { again:false, heard:null }));
     const btns = [{ label:"돌아가기", cls:"sec", go:onBack }];
     if(miss.length) btns.push({ label:"놓친 것만 다시", go:() => runDeck(shuffle(miss), title, onBack) });
+    dock(btns);
+  };
+  draw();
+}
+
+/* ── 한글 롤플레이 (케이스 전체) ──
+   케이스의 모든 블록을 이어서 한국어로. 환자 대사(ko)는 한국어 음성으로 읽어 주고,
+   내 차례에는 블록 이름 · 할 일만 보고 한국어로 말한다. 모범 대사(ko)는 가려 두고 필요할 때만 본다.
+   기록: ST.kr[caseId] = [{s, t, ts, b:[블록별 초]}] (최근 10개) */
+const KOPT = { get tts(){ return LS.get("blk.krtts", true); }, set tts(v){ LS.set("blk.krtts", v); } };
+const caseSec = c => c.blocks.reduce((a,b) => a + (b.sec || 60), 0);
+function krStat(id){
+  const l = (ST.kr || {})[id];
+  if(!l || !l.length) return '<span>아직 안 함</span>';
+  const x = l[l.length-1];
+  return '<span class="ok">한글 '+l.length+'회</span> · 최근 '+mmssT(x.s)+' · '+fmtDate(x.ts);
+}
+function krRow(caseId){
+  const c = CASES.find(x => x.id === caseId); if(!c) return "";
+  return '<button class="row krrow" data-k="'+esc(c.id)+'"><span class="cd">한글</span><span class="tt">한글 롤플레이 — 케이스 전체'+
+    '<div class="st">블록 '+c.blocks.length+'개 이어서 · '+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button>';
+}
+function drawKr(){
+  FROM = "kr";
+  show("s-pick");
+  $("pickTitle").textContent = "한글 롤플레이";
+  $("pickLede").textContent = "케이스 하나를 처음부터 끝까지 한국어로 합니다. 환자 대사는 한국어로 읽어 주고, 내 차례에는 할 일만 보고 한국어로 말하세요. 끝나면 같은 케이스를 영어로 이어서 하세요.";
+  let h = "", grp = null;
+  CASES.forEach(c => {
+    if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
+    h += '<div class="part"><button class="row krow" data-k="'+esc(c.id)+'"><span class="cd">'+esc(c.cat || "")+'</span>' +
+      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">블록 '+c.blocks.length+'개 · '+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button></div>';
+  });
+  $("parts").innerHTML = h;
+  document.querySelectorAll("#parts .krow").forEach(b => b.onclick = () => runKr(b.dataset.k, "kr"));
+}
+function krSegs(c){                 // 연속된 Dentist 대사는 (같은 블록 안에서) 한 차례로 묶는다
+  const segs = [];
+  c.blocks.forEach((b, bi) => (b.turns || []).forEach(t => {
+    const last = segs[segs.length-1];
+    if(t.who === "dr" && last && last.who === "dr" && last.bi === bi) last.lines.push(t);
+    else segs.push({ who:t.who, bi, lines:[t] });
+  }));
+  return segs;
+}
+const koLine = t => t.ko || clean(t.en);
+function runKr(caseId, from){
+  const c = CASES.find(x => x.id === caseId); if(!c) return;
+  R.krFrom = from || "kr";
+  LS.set("chk.case", c.id);
+  const segs = krSegs(c), tgt = caseSec(c), NB = c.blocks.length;
+  openRun(c.code + " · 한글 롤플레이", shortTitle(c));
+  const K = { state:"ready", i:0, t0:0, sec:0, timer:null, bt:new Array(NB).fill(0), bi:0, bStart:0, veil:true };
+  R.K = K;
+  const auto = () => KOPT.tts && canSpeak && !!vKo;
+  const now = () => K.t0 ? (Date.now() - K.t0) / 1000 : 0;
+  const blkHead = bi => { const b = c.blocks[bi]; return (CIRC[bi] || "#" + (bi+1)) + " " + b.name; };
+  const clock = () => {
+    const r = K.sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
+    const b = c.blocks[K.bi];
+    return '<div class="clockbox"><div class="row1"><div class="big '+cls+'" id="kBig">'+mmss(K.sec)+'</div>' +
+      '<div class="tgt">전체 목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br><span id="kBlk">블록 '+(K.bi+1)+' / '+NB+' · '+mmss(K.sec - K.bStart)+' / '+mmss(b.sec || 60)+'</span></div></div>' +
+      '<div class="tbar"><i id="kBar" class="'+cls+'" style="width:'+Math.min(100, r/1.1*100)+'%"></i></div></div>';
+  };
+  const tick = () => {
+    K.sec = now();
+    const r = K.sec / tgt, cls = r > 1.1 ? "over" : (r > 0.9 ? "warn" : "");
+    const g = $("kBig"); if(g){ g.textContent = mmss(K.sec); g.className = "big " + cls; }
+    const i = $("kBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
+    const k = $("kBlk"); if(k) k.textContent = "블록 " + (K.bi+1) + " / " + NB + " · " + mmss(K.sec - K.bStart) + " / " + mmss(c.blocks[K.bi].sec || 60);
+    bar(Math.min(1, r));
+  };
+  const segHTML = s => s.who === "pt"
+    ? '<div class="turn pt dim"><div class="who">Patient</div><div class="ko" style="color:var(--ink);font-size:15px">'+esc(koLine(s.lines[0]))+'</div></div>'
+    : '<div class="turn dr dim"><div class="who">나 (Dentist) · 모범 대사</div>'+s.lines.map(t => '<div class="ko">'+esc(koLine(t))+mustTag({ must:t.ms })+'</div>').join("")+'</div>';
+  const draw = () => {
+    if(R.K !== K) return;
+    let h = "";
+    if(K.state === "ready"){
+      const cue = c.cueCard || {};
+      h = '<div class="topic"><div class="cd">'+esc(c.code)+' · 블록 '+NB+'개 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
+        (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' +
+        '<label>환자 대사</label><div class="seg" id="kTts">' +
+        '<button data-v="1" class="'+(KOPT.tts?"on":"")+'">한국어로 읽어 주기<br><small>다 읽으면 내 차례로</small></button>' +
+        '<button data-v="0" class="'+(!KOPT.tts?"on":"")+'">글로만 보기<br><small>‘다음’을 눌러 넘김</small></button></div>' +
+        (KOPT.tts && !vKo ? '<p class="note" style="color:var(--red)">이 브라우저에 한국어 음성이 없어 글로만 나옵니다. PC의 Microsoft Edge로 열면 한국어 Natural 음성을 쓸 수 있어요.</p>' : "") +
+        '<p class="note">내 차례에는 블록 이름과 할 일만 보입니다. 한국어로 소리 내어 말하고 <b>다 말했어요</b>를 누르세요. 막히면 <b>모범 대사 보기</b>. 시계는 처음부터 끝까지 한 번에 갑니다(블록별 시간도 따로 잼). 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
+    }else{
+      const s = segs[K.i], b = c.blocks[s.bi];
+      h = clock() +
+        '<div class="topic" style="padding:12px 14px"><div class="cd">블록 '+esc(CIRC[s.bi] || s.bi+1)+' / '+NB+(b.start ? ' · 10분 중 '+esc(b.start)+'–'+esc(b.end) : "")+'</div>' +
+        '<div class="en" style="font-size:16px">'+esc(b.name)+'</div>'+(b.todo ? '<div class="ko">할 일: '+esc(b.todo)+'</div>' : "")+'</div>' +
+        '<div style="margin-top:14px">' + segs.slice(0, K.i).filter(x => x.bi === s.bi).map(segHTML).join("");
+      if(s.who === "pt"){
+        h += '<div class="one pt" id="cur"><div class="who">PATIENT</div><div class="ko">'+esc(koLine(s.lines[0]))+'</div></div>';
+      }else{
+        h += '<div class="one" id="cur"><div class="who">DENTIST — 내 차례 · 한국어로 말하세요</div>' +
+          '<div class="ko" style="font-size:14px;color:var(--ink-soft);font-weight:400">모범 대사 '+s.lines.length+'줄'+(s.lines.some(t => t.ms) ? ' · 꼭 말할 문장 포함' : "")+'</div>' +
+          '<div class="kmodel'+(K.veil ? " veil" : "")+'">'+s.lines.map(t => '<div>'+esc(koLine(t))+mustTag({ must:t.ms })+'</div>').join("")+'</div></div>';
+      }
+      h += '</div><p class="counter">'+(K.i+1)+' / '+segs.length+'</p>';
+    }
+    $("runBody").innerHTML = h;
+    document.querySelectorAll("#kTts button").forEach(x => x.onclick = () => { KOPT.tts = x.dataset.v === "1"; draw(); });
+    const cur = $("cur"); if(cur) cur.scrollIntoView({ block:"center", behavior:"smooth" });
+    if(K.state === "ready"){ dock([{ label:"목록으로", cls:"sec", go:quit }, { label:"▶ 시작", go:start }]); return; }
+    const s = segs[K.i];
+    if(s.who === "pt") dock([{ label:"그만", cls:"sec", go:quit }, { label:"다시 듣기", cls:"sec", off:!(canSpeak && vKo), go:() => speak(koLine(s.lines[0]), "ko") }, { label:"다음 ›", go:next }]);
+    else dock([{ label:"그만", cls:"sec", go:quit }, { label:K.veil ? "모범 대사 보기" : "대사 가리기", cls:"sec", go:() => { K.veil = !K.veil; draw(); } }, { label:"다 말했어요 ›", go:next }]);
+  };
+  const playPt = () => {
+    const s = segs[K.i];
+    if(!s || s.who !== "pt" || !auto()) return;
+    const at = K.i;
+    speak(koLine(s.lines[0]), s.lines[0].ko ? "ko" : "pt", () => {
+      if(R.K === K && K.state === "run" && K.i === at) setTimeout(() => { if(R.K === K && K.state === "run" && K.i === at) next(); }, 350);
+    });
+  };
+  const enter = () => {                 // 블록이 바뀌면 블록 시간을 끊는다
+    const bi = segs[K.i].bi;
+    if(bi !== K.bi){ K.bt[K.bi] += now() - K.bStart; K.bStart = now(); K.bi = bi; }
+  };
+  const start = () => {
+    stopSpeak();
+    K.state = "run"; K.i = 0; K.t0 = Date.now(); K.sec = 0; K.bi = segs[0].bi; K.bStart = 0; K.bt.fill(0); K.veil = true;
+    K.timer = setInterval(tick, 250);
+    draw(); playPt();
+  };
+  const next = () => {
+    if(K.state !== "run") return;
+    stopSpeak();
+    K.i++; K.veil = true;
+    if(K.i >= segs.length) return finish();
+    enter(); draw(); playPt();
+  };
+  const quit = () => {
+    if(K.timer){ clearInterval(K.timer); K.timer = null; }
+    K.state = "quit"; stopSpeak();
+    R.krFrom === "case" ? drawPick("case") : drawKr();
+  };
+  const finish = () => {
+    clearInterval(K.timer); K.timer = null;
+    K.sec = now(); K.bt[K.bi] += K.sec - K.bStart; K.state = "done";
+    ST.kr = ST.kr || {};
+    const list = (ST.kr[c.id] = (ST.kr[c.id] || []).concat({ s:Math.round(K.sec), t:tgt, ts:Date.now(), b:K.bt.map(Math.round) }).slice(-10));
+    saveST();
+    const [jc, jt] = judgeTime(K.sec, tgt), dev = Math.round((K.sec - tgt) / tgt * 100);
+    const past = list.slice(-6, -1);
+    openRun(c.code + " · 한글 롤플레이 결과", shortTitle(c));
+    R.K = K;
+    let h = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(K.sec)+'</div>' +
+      '<div class="tgt">전체 목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%</div></div></div>' +
+      '<div class="judge '+jc+'">'+jt+'</div>' +
+      (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s)).join(" · ")+'</div>' : "") +
+      '<h2>블록별 시간</h2><table class="kt"><tr><th>블록</th><th>목표</th><th>내 시간</th></tr>' +
+      c.blocks.map((b, i) => { const m = Math.round(K.bt[i]), t = b.sec || 60, d = (m - t) / t;
+        return '<tr><td>'+esc(blkHead(i))+'</td><td class="n">'+mmss(t)+'</td><td class="n'+(d > 0.2 ? " over" : d < -0.3 ? " under" : "")+'">'+mmss(m)+'</td></tr>'; }).join("") +
+      '</table><p class="note">빨강 = 목표보다 20% 넘게 김 · 주황 = 30% 넘게 짧음. 한국어는 영어와 말 속도가 달라 참고용입니다.</p>' +
+      '<h2>한국어 모범 대본</h2>' +
+      c.blocks.map((b, i) => '<div class="subj">'+esc(blkHead(i))+(b.todo ? ' · <span style="font-weight:400">'+esc(b.todo)+'</span>' : "")+'</div>' +
+        (b.turns || []).map(t => '<div class="turn '+t.who+(t.who==="pt"?" dim":"")+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+mustTag({ must:t.ms })+'</div><div class="ko" style="color:var(--ink);font-size:15px">'+esc(koLine(t))+'</div></div>').join("")).join("");
+    $("runBody").innerHTML = h;
+    bar(1);
+    const first = SECS.find(x => x.caseId === c.id && x.idx === 0);
+    const btns = [{ label:"목록으로", cls:"sec", go:quit }, { label:"다시", cls:"sec", go:() => runKr(c.id, R.krFrom) }];
+    if(first) btns.push({ label:"영어로 ① 블록 ›", go:() => { FROM = "case"; openSec(first.code); } });
     dock(btns);
   };
   draw();
