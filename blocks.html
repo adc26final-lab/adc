@@ -558,14 +558,37 @@ function speak(text, who, onEnd){
   const next = () => {
     if(tok !== speakToken) return;
     if(i >= parts.length){ markSound(); stopKeepAlive(); onEnd && onEnd(); return; }
-    const u = new SpeechSynthesisUtterance(parts[i++]);
-    if(v){ u.voice = v; u.lang = v.lang; } else u.lang = who === "ko" ? "ko-KR" : "en-AU";
-    u.rate = opt.rate; u.pitch = (who === "pt" && vPt === vDr) ? 1.08 : 1.0;
-    let moved = false; const go = () => { if(!moved){ moved = true; markSound(); next(); } };
-    u.onstart = markSound; u.onend = go; u.onerror = go;
-    speechSynthesis.speak(u);
-    const guess = Math.max(3000, (parts[i-1].length/12)*1000/(opt.rate||1) + 2500);
-    setTimeout(() => { if(!speechSynthesis.speaking) go(); }, guess);
+    const text = parts[i++]; let tries = 0;
+    const say = () => {
+      if(tok !== speakToken) return;
+      const u = new SpeechSynthesisUtterance(text);
+      if(v){ u.voice = v; u.lang = v.lang; } else u.lang = who === "ko" ? "ko-KR" : "en-AU";
+      u.rate = opt.rate; u.pitch = (who === "pt" && vPt === vDr) ? 1.08 : 1.0;
+      let moved = false, started = false, tm = null; const t0 = Date.now();
+      const expect = text.length / 15 * 1000 / (opt.rate || 1);        // 대략 말하는 데 걸리는 시간
+      const go = () => { if(!moved){ moved = true; clearTimeout(tm); markSound(); next(); } };
+      const retry = () => {                         // 블루투스 전환 중이라 소리가 안 났다 → 잠깐 쉬고 한 번 더
+        if(moved) return; moved = true; clearTimeout(tm);
+        if(tok !== speakToken) return;
+        tries++; try{ speechSynthesis.cancel(); }catch(e){}
+        setTimeout(() => wakeAudio().then(say), 500);
+      };
+      u.onstart = () => { started = true; markSound(); };
+      u.onend = () => { (tries < 1 && text.length > 15 && Date.now() - t0 < Math.min(700, expect * 0.3)) ? retry() : go(); };
+      u.onerror = e => { const k = e && e.error;
+        if(tok !== speakToken || k === "interrupted" || k === "canceled") return go();
+        tries < 1 ? retry() : go(); };
+      speechSynthesis.speak(u);
+      const chk = () => {
+        if(moved || tok !== speakToken) return;
+        if(speechSynthesis.speaking) started = true;
+        if(!started) return tries < 1 ? retry() : go();          // 끝내 시작을 못 했다
+        if(speechSynthesis.speaking){ tm = setTimeout(chk, 1500); return; }   // 아직 말하는 중 — 기다린다
+        go();
+      };
+      tm = setTimeout(chk, Math.max(4000, expect + 3000));
+    };
+    say();
   };
   const begin = (cold) => {
     if(tok !== speakToken) return;
@@ -881,7 +904,7 @@ function noteAttempt(id){            // 채점 결과를 놓친 것 위주 랜�
 const R = {};            // 실행 상태
 let FROM = "case";       // 블록 메뉴에서 돌아갈 곳: case | type | rand
 function show(id){
-  stopSpeak(); resetAttempt();
+  stopSpeak(); resetAttempt(); releaseHold();
   if(R.W && R.W.timer){ clearInterval(R.W.timer); }
   if(id !== "s-run") R.W = null;
   if(R.K && R.K.timer){ clearInterval(R.K.timer); R.K.timer = null; }
@@ -1257,8 +1280,21 @@ const WOPT = {
   get pt(){ return LS.get("sec.wpt", "skip"); }, set pt(v){ LS.set("sec.wpt", v); },
   get hint(){ return LS.get("sec.whint", false); }, set hint(v){ LS.set("sec.whint", v); },
   get conv(){ return LS.get("sec.wconv", true); }, set conv(v){ LS.set("sec.wconv", v); },
-  get free(){ return LS.get("sec.wfree", true); }, set free(v){ LS.set("sec.wfree", v); }   // 자유 대화(기본) / 대본 순서대로
+  get free(){ return LS.get("sec.wfree", true); }, set free(v){ LS.set("sec.wfree", v); },   // 자유 대화(기본) / 대본 순서대로
+  get hold(){ return LS.get("sec.whold", true); }, set hold(v){ LS.set("sec.whold", v); }   // 대화 동안 마이크 계속 켜 두기
 };
+/* 블루투스 헤드셋은 마이크가 켜지면 '통화 모드'(멀고 작은 소리), 꺼지면 '음악 모드'로 바뀐다.
+   바뀌는 1~2초 동안 소리가 끊기거나 빠지므로, 대화하는 동안은 마이크를 계속 켜 둬서 모드를 고정한다. */
+let HOLD = null;
+async function holdMic(){
+  if(HOLD) return true;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  try{ HOLD = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } }); }
+  catch(e){ HOLD = null; return false; }
+  await new Promise(r => setTimeout(r, 1500));     // 헤드셋이 통화 모드로 바뀌는 시간
+  return true;
+}
+function releaseHold(){ if(HOLD){ try{ HOLD.getTracks().forEach(t => t.stop()); }catch(e){} HOLD = null; } }
 function runWhole(){
   const s = R.sec, tm = secTimes(s);
   const convOK = () => WOPT.conv && AI.on && canMic();
@@ -1312,8 +1348,9 @@ function runWhole(){
         '<button data-v="1" class="'+(WOPT.free?"on":"")+'">자유 대화<br><small>내 말에 맞춰 대답 · 순서 자유</small></button>' +
         '<button data-v="0" class="'+(!WOPT.free?"on":"")+'">대본 순서대로<br><small>환자가 대본 대사를 차례로</small></button></div>';
       h += '<p class="note">'+(open1 ? "환자가 먼저 말을 꺼냅니다. " : "")+'내가 한 차례 말하고 <b>🎤 다 말했어요</b>를 누르면 Claude가 그 말에 맞춰 환자 대답을 만들어 읽어 줍니다. 대답을 만드는 동안은 시계가 멈춥니다. ' +
-           (WOPT.free ? '환자는 대본에 묶이지 않고 내 말에 자연스럽게 반응하며, 블록은 저절로 끝나지 않아요. 다 말했으면 <b>■ 블록 끝</b>을 누르세요. 그때 한꺼번에 채점합니다.</p>'
+           '' + (WOPT.free ? '환자는 대본에 묶이지 않고 내 말에 자연스럽게 반응하며, 블록은 저절로 끝나지 않아요. 다 말했으면 <b>■ 블록 끝</b>을 누르세요. 그때 한꺼번에 채점합니다.</p>'
                       : '환자 대사를 다 하면 자동으로 끝나요. 먼저 끝내려면 <b>■ 블록 끝</b>.</p>') +
+           '<button class="chk'+(WOPT.hold?" on":"")+'" id="wHold" style="margin-top:10px"><span class="bx"></span><span><b>블루투스 헤드셋 소리 고정</b> — 블록 동안 마이크를 계속 켜 둡니다. 환자 목소리가 멀어졌다 가까워지거나 소리가 빠지는 것을 막아요.</span></button>' +
            '<p class="note">목표 시간은 환자 대사를 포함한 블록 시간('+mmss(tm.total)+')입니다.</p>';
     }else{
       h += '<label>환자 대사 시간</label><div class="seg" id="wPt">' +
@@ -1344,6 +1381,7 @@ function runWhole(){
     document.querySelectorAll("#wPt button").forEach(b => b.onclick = () => { WOPT.pt = b.dataset.v; draw(); });
     document.querySelectorAll("#wConv button").forEach(b => b.onclick = () => { WOPT.conv = b.dataset.v === "1"; runWhole(); });
     document.querySelectorAll("#wFree button").forEach(b => b.onclick = () => { WOPT.free = b.dataset.v === "1"; W.free = WOPT.free; draw(); });
+    const hb2 = $("wHold"); if(hb2) hb2.onclick = () => { WOPT.hold = !WOPT.hold; draw(); };
     const last = $("wLast"); if(last && W.conv) last.scrollIntoView({ block:"center", behavior:"smooth" });
     if(W.state === "ready") dock([{ label:"그만", cls:"sec", go:quit }, { label:"▶ 시작", go:start }]);
     else if(W.conv){
@@ -1361,8 +1399,15 @@ function runWhole(){
     const i = $("wBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
     bar(Math.min(1, r));
   };
-  const start = () => {
+  const start = async () => {
     stopSpeak(); resetAttempt();
+    if(convOK() && WOPT.hold && !HOLD){
+      W.state = "prep";
+      $("runBody").innerHTML = clock() + topic(true) + '<div class="heard"><div class="lb">헤드셋 마이크 준비 중…</div></div>';
+      dock([{ label:"준비 중…", off:true, go:() => {} }]);
+      await holdMic();
+      if(R.W !== W || W.state !== "prep"){ if(R.W !== W) releaseHold(); return; }
+    }
     W.acc = 0; W.seg = 0; W.sec = 0; W.log = []; W.my = []; W.ending = false; W.note = "";
     W.timer = setInterval(tick, 200);
     if(convOK()){
@@ -1395,11 +1440,14 @@ function runWhole(){
     W.state = "pt"; clockOn();
     if(last) W.note = "";
     draw();
-    speak(text, "pt", () => {
+    const wait = HOLD ? 0 : Math.max(0, 1500 - (Date.now() - (W.micOff || 0)));   // 헤드셋이 음악 모드로 돌아올 때까지
+    if(wait){ setTimeout(() => { if(R.W === W && W.state === "pt" && !W.ending) say1(); }, wait); return; }
+    say1();
+    function say1(){ speak(text, "pt", () => {
       if(R.W !== W || W.state !== "pt" || W.ending) return;
       if(last){ W.ending = true; clockOff(); tick(); endFinish(""); }   // 이 섹션 끝 → 결과로
       else myTurn();
-    });
+    }); }
   };
   const myTurn = () => {
     if(W.ending || R.W !== W) return;
@@ -1409,7 +1457,7 @@ function runWhole(){
   };
   const myDone = () => {
     if(A.phase !== "listen") return;
-    W.userStop = true; clockOff();
+    W.userStop = true; clockOff(); W.micOff = Date.now();
     W.state = "think"; W.thinkMsg = AI.stt === "scribe" ? "받아쓰는 중…" : "환자가 생각 중…"; draw();
     A.redraw = () => { if(A.phase === "busy"){ W.thinkMsg = A.busyMsg || W.thinkMsg; draw(); } else if(A.phase === "idle" && A.err){ A.onFinish = null; onMyTurn(""); } };
     listenStop();
@@ -1452,6 +1500,7 @@ function runWhole(){
     last = (last || "").trim();
     if(last){ W.log.push({ who:"dr", en:last }); W.my.push(last); }
     clearInterval(W.timer); clockOff(); W.sec = now();
+    releaseHold();
     result(W.my.join(" "), W.log);
   };
 
