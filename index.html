@@ -100,6 +100,8 @@
   .pinclock.warn{color:var(--amber)} .pinclock.over{color:var(--red)}
   .pinname{flex:1; font-size:13.5px; color:var(--ink-soft); overflow:hidden;
            white-space:nowrap; text-overflow:ellipsis}
+  #plenBtn{font-size:12.5px; color:var(--ink-soft); border:1px solid var(--rule);
+        border-radius:3px; padding:6px 10px; background:var(--card); white-space:nowrap}
   #fold{font-size:12.5px; color:var(--teal); border:1px solid var(--rule);
         border-radius:3px; padding:6px 10px; background:var(--card); white-space:nowrap}
   #pinCard{background:var(--card); border:1px solid var(--rule); border-top:3px solid var(--ink);
@@ -238,6 +240,14 @@
   </select>
   <p class="note">문법과 표현은 절대 손대지 않습니다. 채점은 내가 실제로 말한 영어 그대로 받습니다.</p>
 
+  <label for="plen">환자 말 길이</label>
+  <select id="plen">
+    <option value="min">아주 짧게 — 묻는 것만 한 문장으로 대답</option>
+    <option value="short">짧게 — 한두 문장, 되묻기 최소 (연습용)</option>
+    <option value="normal">보통 — 실제 환자처럼 한 문장에서 세 문장</option>
+  </select>
+  <p class="note">연습 단계에서는 짧게 두면 내 말할 시간이 늘어납니다. 숨겨진 정보는 길이와 상관없이 물어봐야만 나옵니다. 스테이션 중에도 위쪽 버튼으로 바꿀 수 있어요.</p>
+
   <label for="engine">환자 목소리</label>
   <select id="engine">
     <option value="tts">브라우저 음성 (Edge 호주 Natural 우선) — 무료</option>
@@ -304,6 +314,7 @@
     <div class="pinbar">
       <span class="pinclock" id="stnClock">10:00</span>
       <span class="pinname" id="pinName"></span>
+      <button id="plenBtn">환자 말: 짧게</button>
       <button id="fold">카드 접기</button>
     </div>
     <div class="pace hide" id="pace"></div>
@@ -397,6 +408,8 @@ const store = {
   set fix(v){ try{ localStorage.setItem("osce.asrfix", v); }catch(e){} },
   get stt(){ try{ return localStorage.getItem("osce.stt") || "browser"; }catch(e){ return "browser"; } },
   set stt(v){ try{ localStorage.setItem("osce.stt", v); }catch(e){} },
+  get plen(){ try{ return localStorage.getItem("osce.plen") || "short"; }catch(e){ return "short"; } },
+  set plen(v){ try{ localStorage.setItem("osce.plen", v); }catch(e){} },
   get dbg(){ try{ return localStorage.getItem("osce.showraw") || "off"; }catch(e){ return "off"; } },
   set dbg(v){ try{ localStorage.setItem("osce.showraw", v); }catch(e){} },
   get elk(){ try{ return localStorage.getItem("osce.elkey") || ""; }catch(e){ return ""; } },
@@ -1337,6 +1350,24 @@ function recStop(){
 }
 
 /* ══════════ 환자 턴 ══════════ */
+/* 환자 말 길이 — 연습 단계에서 환자가 시간을 덜 쓰게 */
+const PLEN = {
+  min:    { label:"아주 짧게", tokens:70,  rule:[
+    "- LENGTH (most important rule, it beats the voice samples above): ONE short sentence, 12 words or fewer.",
+    "  Answer only what the dentist just asked. No small talk, no stories, no extra feelings.",
+    "  Do not ask the dentist questions, except one very short question if you truly did not understand.",
+    "  Your first line: a few words of greeting, then your main concern in one short sentence."] },
+  short:  { label:"짧게",     tokens:120, rule:[
+    "- LENGTH (this beats the voice samples above): one or two short sentences, 25 words or fewer in total.",
+    "  Answer what was asked, then stop. Keep feelings and background to a few words.",
+    "  Ask at most one question per reply, and only when it really matters to you.",
+    "  Your first line: greet briefly and give your concern in one or two short sentences."] },
+  normal: { label:"보통",     tokens:220, rule:[
+    "- One to three sentences. Talk like a real person, not in paragraphs."] }
+};
+const plenNow = () => PLEN[store.plen] || PLEN.short;
+const lengthRule = () => plenNow().rule.join("\n");
+function plenBtnDraw(){ const b = $("plenBtn"); if(b) b.textContent = "환자 말: " + plenNow().label; }
 function patientSystem(){
   const k = S.kase;
   const cues = k.cues.map(c => "- ["+c.id+"] "+(c.hidden||c.reveal)+
@@ -1370,7 +1401,7 @@ function patientSystem(){
     "",
     "RULES",
     "- Reply with spoken words only. No narration, no labels, no stage directions.",
-    "- One to three sentences. Talk like a real person, not in paragraphs.",
+    lengthRule(),
     "- Two questions at once: answer only the one you noticed.",
     "- Jargon: react like a layperson who did not follow it.",
     "- The dentist's words reach you through speech recognition, so a word may be garbled.",
@@ -1383,7 +1414,7 @@ async function patientReply(){
   const msgs = S.turns.map(t => ({ role: t.role === "dr" ? "user" : "assistant", content: t.text }));
   if(!msgs.length || msgs[0].role !== "user")      // 첫 발화는 언제나 치과의사 쪽이다
     msgs.unshift({ role:"user", content:"[The dentist has just walked in.]" });
-  return claude(patientSystem(), msgs, 220);
+  return claude(patientSystem(), msgs, plenNow().tokens);
 }
 
 async function submitTurn(text, raw){
@@ -1640,6 +1671,8 @@ $("go").onclick = () => {
   store.srl = $("srlang").value;
   store.fix = $("asrfix").value;
   store.dbg = $("showraw").value;
+  store.plen = $("plen").value;
+  plenBtnDraw();
   store.eng = $("engine").value;
   if(store.eng === "11"){
     store.elk = $("elKey").value.trim();
@@ -1892,6 +1925,14 @@ $("sttmode").value = store.stt;
 $("srlang").value = store.srl;
 $("asrfix").value = store.fix;
 $("showraw").value = store.dbg;
+$("plen").value = store.plen;
+$("plen").onchange = e => { store.plen = e.target.value; plenBtnDraw(); };
+$("plenBtn").onclick = () => {                 // 스테이션 중에 누를 때마다 아주 짧게 → 짧게 → 보통
+  const order = ["min", "short", "normal"];
+  store.plen = order[(order.indexOf(store.plen) + 1) % order.length];
+  $("plen").value = store.plen; plenBtnDraw();
+};
+plenBtnDraw();
 $("engine").value = store.eng;
 $("elKey").value = store.elk;
 toggleEl();
