@@ -763,7 +763,6 @@ async function claudeCall(o){
     let res;
     try{
       const body = { model:AI.model, max_tokens:maxTok, system:o.system, messages:o.messages };
-      if(o.temp != null) body.temperature = o.temp;
       res = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST", signal: ac ? ac.signal : undefined,
         headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
@@ -958,7 +957,7 @@ const GRADE_SYS = [
 async function gradeLine(item, said){
   const user = (item.ctx ? "Patient just said: " + clean(item.ctx) + "\n" : "") +
     "Korean meaning: " + item.ko + "\nModel answer: " + clean(item.en) + "\nCandidate said: " + said;
-  const j = await claudeCall({ system:GRADE_SYS, messages:[{ role:"user", content:user }], maxTok:600, ms:45000, json:true, temp:0,
+  const j = await claudeCall({ system:GRADE_SYS, messages:[{ role:"user", content:user }], maxTok:600, ms:45000, json:true,
                                check: j => j && typeof j.v === "string" });
   j.v = ({ o:"o", p:"p", x:"x" })[String(j.v||"").trim().toLowerCase()] || "p";
   return j;
@@ -1865,7 +1864,7 @@ async function gradeWhole(s, said, log){
     "\n\nModel dentist script:\n" + s.script.filter(t => t.who === "dr").map(t => clean(t.en)).join(" ") +
     (log ? "\n\nThe candidate talked with a patient. Conversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
       "\n\nJudge only the candidate's lines." : "\n\nCandidate said:\n" + said);
-  return await claudeCall({ system:WHOLE_SYS, messages:[{ role:"user", content:user }], maxTok:1600, ms:60000, json:true, temp:0,
+  return await claudeCall({ system:WHOLE_SYS, messages:[{ role:"user", content:user }], maxTok:1600, ms:60000, json:true,
                             check: j => j && Array.isArray(j.hit) });
 }
 
@@ -2196,7 +2195,7 @@ async function gradeKr(c, checks, log){
     "\n\nModel dentist script (Korean):\n" + krTurns(c).filter(t => t.who === "dr").map(koLine).join(" ") +
     "\n\nConversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
     "\n\nJudge only the candidate's lines.";
-  const j = await claudeCall({ system:KR_GRADE_SYS, messages:[{ role:"user", content:user }], maxTok:2500, ms:90000, json:true, temp:0,
+  const j = await claudeCall({ system:KR_GRADE_SYS, messages:[{ role:"user", content:user }], maxTok:2500, ms:90000, json:true,
                                check: j => j && Array.isArray(j.hit) });
   return { hit: checks.map((_,i) => !!(j.hit && j.hit[i])), note: j.note || "", miss: j.miss || "" };
 }
@@ -2478,20 +2477,29 @@ function n3AltHit(a, P){
   if(!isAscii && /^[가-힣]{3,}$/.test(a) && P.flat.includes(a.slice(0, 2))) return true;   // 흡연량 → 흡연
   return false;
 }
-function n3KwHit(kw, P){
+function n3KwLevel(kw, P){          // 0 = 없음, 1 = 말의 절반 이상, 2 = 말 전부
   const toks = n3Tokens(kw);
-  if(!toks.length) return false;
+  if(!toks.length) return 0;
   const got = toks.filter(t => t.raw ? P.low.replace(/\s+/g, "").includes(t.alts[0]) : t.alts.some(a => n3AltHit(a, P)));
-  if(got.length < Math.max(1, Math.ceil(toks.length / 2))) return false;
+  if(got.length < Math.max(1, Math.ceil(toks.length / 2))) return 0;
   if(/[✕×]/.test(kw)){        // '하지 않음' 키워드는 노트에도 부정 표시가 있어야 맞음
     const lines = P.lines.filter(l => { const Q = n3Prep(l); return got.some(t => t.raw ? Q.low.replace(/\s+/g, "").includes(t.alts[0]) : t.alts.some(a => n3AltHit(a, Q))); });
-    return lines.some(l => N3_NEG.test(l));
+    if(!lines.some(l => N3_NEG.test(l))) return 0;
   }
-  return true;
+  return got.length === toks.length ? 2 : 1;
 }
+const n3KwHit = (kw, P) => n3KwLevel(kw, P) > 0;
 function n3Local(n, note){
   const P = n3Prep(note);
   return n.blocks.map(b => b.kw.map(k => n3KwHit(k, P)));
+}
+function n3LocalStrong(n, note){     // 키워드 글자 그대로(동의어 말고) 노트에 전부 있는 것 — Claude가 놓쳐도 맞음으로 둔다
+  const P = n3Prep(note);
+  return n.blocks.map(b => b.kw.map(k => {
+    const toks = n3Tokens(k);
+    if(!toks.length || toks.some(t => !(t.raw ? P.low.replace(/\s+/g, "").includes(t.alts[0]) : n3AltHit(t.alts[0], P)))) return false;
+    return n3KwLevel(k, P) === 2;          // ✕ 키워드의 부정 확인도 거친다
+  }));
 }
 function n3Score(n, hit){
   let got = 0, tot = 0, sg = 0, st = 0, kg = 0, kt = 0;
@@ -2504,23 +2512,50 @@ function n3Score(n, hit){
 }
 const N3_SYS = [
   "You grade a 3-minute plan note for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
-  "A Korean dentist read only the cue card and typed a quick note in 3 minutes, mixing Korean, English and abbreviations. They write keywords, not sentences.",
-  "You get an answer key: numbered time blocks, each with short keywords (Korean, English or abbreviations). ★ marks a scoring-axis block.",
-  "For each keyword decide if the note contains the same idea, in any language, wording, abbreviation or place. Block numbers and order in the note do not matter.",
-  "Be fair but not generous: a related but different idea is not a hit. A keyword with ✕ means 'not / do not': it counts only if the note shows the same negative idea (e.g. 'AB ✕' needs 'no antibiotics').",
-  "A question mark in a keyword means 'ask the patient about this': writing the topic counts.",
-  "Common abbreviations: HOPC history, MHx medical history, Sw swelling, mob mobility, BOP bleeding on probing, Xr x-ray, PK painkiller, Dx diagnosis, Mx management, Opt options, Cx consent, Ext extraction, AB antibiotic, Spec specialist, Rv review, OHI oral hygiene instruction, sum summary, Q? questions, CB curveball, d/wk/m/y day/week/month/year.",
+  "A Korean dentist read only the cue card and typed a quick plan in 3 minutes. It is a NOTE, not sentences: short keywords in Korean, English and abbreviations, arrows, question marks, typos.",
+  "The answer key lists keywords, each with an ID like 3.2 (block 3, keyword 2). ★ marks a scoring-axis block.",
+  "Decide for EACH keyword ID whether the note shows the same core idea anywhere (any block, any order, any language, any abbreviation or synonym).",
+  "Rules:",
+  "- Count it when the core idea is clearly there, even if a minor detail is missing (a number, a second example, the exact drug dose).",
+  "- Do not count it when the note only has a vaguer or different idea (e.g. key 'PcV + Metro' vs note '항생제' is not a hit: the drug choice is the point).",
+  "- A keyword ending in ? means 'ask about this': writing the topic counts (key 'fever?' vs note '열' is a hit).",
+  "- A keyword with ✕ means 'not / do not': it counts only if the note shows the same negative idea (key 'AB ✕' vs note '항생제 x' or 'no AB' is a hit; note '항생제' alone is not).",
+  "- A keyword with → or + joins parts: count it when most parts are there and nothing contradicts the key.",
+  "- Ignore spelling, spacing, typos, block numbers and order. Korean particles do not matter.",
+  "- Also look for the idea written in other words: 흔들림 = mob, 붓기 = Sw, 뽑기 = Ext, 전문의/의뢰 = Spec/refer, 질문 = Q?, 요약/정리 = sum, 진통제 = PK.",
   "Reply with JSON only, no other text:",
-  "{\"hit\":[[true,false],[true]],\"note\":\"한국어 두 문장 이내 — 잘 잡은 점 하나, 가장 중요한 빠진 점 하나\",\"extra\":\"정답 키에는 없지만 노트에 쓴 좋은 내용을 한국어로 짧게, 없으면 빈 문자열\",\"wrong\":\"노트에 틀리거나 위험한 내용이 있으면 한국어로 짧게, 없으면 빈 문자열\"}",
-  "hit has one array per block, in order, and each array has exactly one boolean per keyword of that block, in order."
+  "{\"hit\":[\"1.1\",\"1.3\",\"2.1\"],\"note\":\"한국어 두 문장 이내 — 잘 잡은 점 하나, 가장 중요한 빠진 점 하나\",\"extra\":\"정답 키에는 없지만 노트에 쓴 좋은 내용을 한국어로 짧게, 없으면 빈 문자열\",\"wrong\":\"노트에 틀리거나 위험한 내용이 있으면 한국어로 짧게, 없으면 빈 문자열\"}",
+  "hit lists the IDs of the keywords the note covers. List each ID at most once. Leave out the ones it does not cover."
 ].join("\n");
+function n3AbbrLine(){                // 최신 약어표를 한 줄로 (Claude가 약어를 읽게)
+  return n3Abbr().filter(sec => !/기호/.test(sec.sec)).flatMap(sec => sec.items.map(it => it[0] + " = " + it[1])).join("; ");
+}
+function n3HitIds(n, j){              // Claude 답 → 블록별 true/false. ID 목록이 기본, 예전 2중 배열도 읽는다
+  const out = n.blocks.map(b => b.kw.map(() => false));
+  const arr = Array.isArray(j.hit) ? j.hit : [];
+  if(arr.some(x => Array.isArray(x))){
+    arr.forEach((row, i) => Array.isArray(row) && out[i] && row.forEach((v, k) => { if(k < out[i].length) out[i][k] = !!v; }));
+    return out;
+  }
+  arr.forEach(x => {
+    const m = String(x).match(/(\d+)\s*[.\-_:,]\s*(\d+)/); if(!m) return;
+    const i = +m[1] - 1, k = +m[2] - 1;
+    if(out[i] && k >= 0 && k < out[i].length) out[i][k] = true;
+  });
+  return out;
+}
 async function gradeN3(n, note){
-  const key = n.blocks.map((b, i) => (i+1) + ". " + (b.star ? "★ " : "") + b.label + ": " + b.kw.map((k, j) => "[" + (j+1) + "] " + k).join("  ")).join("\n");
-  const user = "Cue card:\n" + n.cue + "\n\nAnswer key (" + n.blocks.length + " blocks):\n" + key + "\n\nCandidate's note:\n" + note;
-  const j = await claudeCall({ system:N3_SYS, messages:[{ role:"user", content:user }], maxTok:2000, ms:60000, json:true, temp:0,
+  const key = n.blocks.map((b, i) => "Block " + (i+1) + (b.star ? " ★" : "") + " (" + b.label + "):\n" + b.kw.map((k, j) => "  " + (i+1) + "." + (j+1) + "  " + k).join("\n")).join("\n");
+  const noteN = String(note).split(/\n/).map((l, i) => (i+1) + "| " + l).join("\n");
+  const user = "Abbreviations used in the key and the note: " + n3AbbrLine() +
+    "\n\nCue card:\n" + n.cue + "\n\nAnswer key (" + n.blocks.reduce((a, b) => a + b.kw.length, 0) + " keywords):\n" + key +
+    "\n\nCandidate's note (line numbers added):\n" + noteN;
+  const j = await claudeCall({ system:N3_SYS, messages:[{ role:"user", content:user }], maxTok:1500, ms:60000, json:true,
                                check: j => j && Array.isArray(j.hit) });
-  const hit = n.blocks.map((b, i) => b.kw.map((_, k) => !!(j.hit && j.hit[i] && j.hit[i][k])));
-  return { hit, note: j.note || "", extra: j.extra || "", wrong: j.wrong || "" };
+  const ai = n3HitIds(n, j), strong = n3LocalStrong(n, note);
+  const hit = ai.map((row, i) => row.map((v, k) => v || strong[i][k]));       // Claude 판정 + 글자 그대로 쓴 것
+  const added = ai.reduce((a, row, i) => a + row.filter((v, k) => !v && strong[i][k]).length, 0);
+  return { hit, note: j.note || "", extra: j.extra || "", wrong: j.wrong || "", added };
 }
 
 /* 기록 */
@@ -2621,7 +2656,7 @@ function runN3(code, from, blind){
         (past.length ? '<div class="hist">지난 점수: '+past.map(x => x.p + "점").join(" · ")+'</div>' : "");
       if(G.busy) h += '<div class="heard"><div class="lb">Claude가 뜻으로 다시 채점하는 중… (지금 보이는 건 키워드 맞추기 결과)</div></div>';
       else if(G.err) h += '<div class="heard"><div class="er">Claude 채점 실패: '+esc(G.err)+' — 키워드 맞추기 결과입니다.</div><button class="linkbtn" id="n3Regrade" style="margin-top:6px">↻ Claude로 다시 채점</button></div>';
-      else if(G.ai) h += '<div class="heard"><div class="lb">Claude 판정 · 칩을 눌러 고칠 수 있어요</div>'+(G.note ? '<div class="fb">'+esc(G.note)+'</div>' : "") +
+      else if(G.ai) h += '<div class="heard"><div class="lb">Claude 판정'+(G.added ? ' + 노트에 그대로 쓴 키워드 '+G.added+'개' : "")+' · 칩을 눌러 고칠 수 있어요</div>'+(G.note ? '<div class="fb">'+esc(G.note)+'</div>' : "") +
         (G.extra ? '<div class="fb"><b>키 밖에서 잘 쓴 것:</b> '+esc(G.extra)+'</div>' : "") + (G.wrong ? '<div class="fb" style="color:var(--red)"><b>확인 필요:</b> '+esc(G.wrong)+'</div>' : "") + '</div>';
       else h += '<p class="note">약어 · 동의어 표로 맞춘 결과입니다. 뜻은 맞는데 빠짐으로 나오면 칩을 눌러 고치세요.</p>';
       h += '<h2>정답 카드와 비교 — 초록 = 씀, 빨강 = 빠짐</h2>' + n.blocks.map((b, i) => {
@@ -2650,7 +2685,7 @@ function runN3(code, from, blind){
     };
     const runAI = async () => {
       G.busy = true; G.err = ""; render();
-      try{ const j = await gradeN3(n, note); G.hit = j.hit; G.note = j.note; G.extra = j.extra; G.wrong = j.wrong; G.ai = true; rec.ai = true; }
+      try{ const j = await gradeN3(n, note); G.hit = j.hit; G.note = j.note; G.extra = j.extra; G.wrong = j.wrong; G.added = j.added; G.ai = true; rec.ai = true; }
       catch(e){ G.err = e.message; }
       G.busy = false; save(); render();
     };
