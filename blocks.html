@@ -200,7 +200,7 @@
       <button class="ent typ" id="goType"><div class="t">블록 종류별</div><div class="d">57케이스의 같은 종류 블록을 모아서</div></button>
       <button class="ent rnd wide" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">과목 · 블록 종류를 고르면 무작위로 출제 (놓친 것 위주 가능)</div></button>
       <button class="ent kr wide" id="goKr"><div class="t">한글 롤플레이 (10분 전체)</div><div class="d">10분 롤플레이를 처음부터 끝까지 한국어로 — AI 환자와 대화하고 Claude가 채점, 그다음 영어로</div></button>
-      <button class="ent n3 wide" id="goN3"><div class="t">3분 노트 채점 (문 밖 3분)</div><div class="d">cue card만 보고 3:00 동안 노트를 타이핑 → 블록별 키워드로 채점 (★ 2점) · Claude가 뜻으로 다시 판정</div></button>
+      <button class="ent n3 wide" id="goN3"><div class="t">3분 노트 채점 (문 밖 3분)</div><div class="d">cue card만 보고 3:00 동안 노트를 타이핑 → 블록별 키워드로 채점 (★ 2점) · Claude 채팅으로 정확히 채점</div></button>
       <button class="ent cont wide hide" id="goLast"><div class="t" id="lastT"></div><div class="d" id="lastD"></div></button>
     </div>
     <p class="note" id="sumLine"></p>
@@ -2558,6 +2558,64 @@ async function gradeN3(n, note){
   return { hit, note: j.note || "", extra: j.extra || "", wrong: j.wrong || "", added };
 }
 
+/* ── Claude 채팅으로 채점 ──
+   요청문을 복사해 claude.ai 채팅에 붙여넣으면 Claude가 채팅에서 채점한다.
+   답 맨 끝 '채점코드: 1.1 2.3 …' 줄을 앱에 붙여넣으면 칩 · 점수에 반영된다. 점수 계산은 앱이 한다. */
+function n3ChatPrompt(n, note){
+  const key = n.blocks.map((b, i) => "Block " + (i+1) + (b.star ? " ★" : "") + " (" + b.label + ")\n" +
+    b.kw.map((k, j) => "  " + (i+1) + "." + (j+1) + "  " + k).join("\n")).join("\n");
+  const noteN = String(note || "").trim() ? String(note).split(/\n/).map((l, i) => (i+1) + "| " + l).join("\n") : "(아무것도 쓰지 못함)";
+  return [
+    "ADC Part 2 OSCE 3분 노트 채점을 부탁해요.",
+    "나는 시험장 밖 3분 동안 cue card만 보고 진료 계획 노트를 썼어요. 노트는 문장이 아니라 한국어 · 영어 · 약어가 섞인 키워드예요.",
+    "아래 정답 키의 키워드마다, 내 노트에 같은 핵심 생각이 있는지 판정해 주세요.",
+    "",
+    "[판정 기준]",
+    "- 핵심 생각이 분명히 있으면 맞음. 숫자 같은 작은 세부가 빠져도 맞음.",
+    "- 더 막연하거나 다른 생각이면 빠짐. 예: 키 'PcV + Metro'에 노트 '항생제'만 있으면 빠짐 (약 선택이 핵심).",
+    "- ?로 끝나는 키워드는 '물어볼 것' — 주제만 써도 맞음. 예: 'fever?' ← 노트 '열' → 맞음.",
+    "- ✕가 붙은 키워드는 '하지 않음' — 노트에도 부정 표시가 있어야 맞음. 예: 'AB ✕' ← '항생제 x' → 맞음, '항생제'만 → 빠짐.",
+    "- → 나 + 로 이어진 키워드는 대부분이 있고 어긋나는 내용이 없으면 맞음.",
+    "- 블록 번호 · 순서 · 철자 · 띄어쓰기 · 조사는 따지지 않음. 노트 어디에 있어도 됨.",
+    "",
+    "[약어표]",
+    n3AbbrLine(),
+    "",
+    "[Cue card]",
+    n.cue,
+    "",
+    "[정답 키] 키워드 번호 = 블록.순서 · ★ 블록 키워드는 2점, 나머지 1점",
+    key,
+    "",
+    "[내 노트] (줄 번호는 붙인 것)",
+    noteN,
+    "",
+    "[답 형식]",
+    "1. 블록마다 한 줄: 블록 N — 맞음: … / 빠짐: …",
+    "2. 잘한 점 하나, 가장 중요한 빠진 점 하나, 노트에 틀리거나 위험한 내용 (없으면 '없음')",
+    "3. 맨 마지막 줄에 맞은 키워드 번호만 적어 주세요. 예: 채점코드: 1.1 1.3 2.1  (하나도 없으면 '채점코드: 없음')",
+    "점수는 앱이 계산하니 따로 계산하지 않아도 돼요."
+  ].join("\n");
+}
+function n3ParseCode(n, text){         // 붙여넣은 채팅 답 → 블록별 true/false
+  const t = String(text || "");
+  const lines = t.split(/\n/).filter(l => /채점\s*코드/.test(l));
+  const src = lines.length ? lines[lines.length - 1].replace(/^.*?채점\s*코드\s*[:：]?/, "") : t;
+  if(lines.length && /없음/.test(src) && !/\d/.test(src)) return { hit: n.blocks.map(b => b.kw.map(() => false)), count: 0 };
+  const ids = (src.match(/\d+\s*[.\-_]\s*\d+/g) || []).map(x => x.replace(/\s+/g, ""));
+  if(!ids.length) return null;
+  const hit = n3HitIds(n, { hit: ids });
+  return { hit, count: hit.flat().filter(Boolean).length };
+}
+async function copyText(t){
+  try{ if(navigator.clipboard && window.isSecureContext !== false){ await navigator.clipboard.writeText(t); return true; } }catch(e){}
+  try{
+    const ta = document.createElement("textarea"); ta.value = t; ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.top = "-1000px"; document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy"); ta.remove(); return ok;
+  }catch(e){ return false; }
+}
+
 /* 기록 */
 function n3Stat(code){
   const l = (ST.n3 || {})[code];
@@ -2639,7 +2697,7 @@ function runN3(code, from, blind){
     clearInterval(N.timer); N.timer = null;
     N.sec = Math.min(LIMIT, (Date.now() - N.t0) / 1000); N.state = "grading";
     const note = N.note.trim();
-    const G = { hit: n3Local(n, note), ai:false, busy: AI.on && !!note, note:"", extra:"", wrong:"", err:"" };
+    const G = { hit: n3Local(n, note), ai:false, busy:false, note:"", extra:"", wrong:"", err:"", paste:"", chatMsg:"", showPrompt:false };
     ST.n3 = ST.n3 || {};
     const rec = { p: n3Score(n, G.hit).p, ts: Date.now(), ai:false, note: note.slice(0, 2000), s: Math.round(N.sec) };
     const list = (ST.n3[n.code] = (ST.n3[n.code] || []).concat(rec).slice(-10));
@@ -2656,9 +2714,21 @@ function runN3(code, from, blind){
         (past.length ? '<div class="hist">지난 점수: '+past.map(x => x.p + "점").join(" · ")+'</div>' : "");
       if(G.busy) h += '<div class="heard"><div class="lb">Claude가 뜻으로 다시 채점하는 중… (지금 보이는 건 키워드 맞추기 결과)</div></div>';
       else if(G.err) h += '<div class="heard"><div class="er">Claude 채점 실패: '+esc(G.err)+' — 키워드 맞추기 결과입니다.</div><button class="linkbtn" id="n3Regrade" style="margin-top:6px">↻ Claude로 다시 채점</button></div>';
+      else if(G.ai === "chat") h += '<div class="heard"><div class="lb">Claude 채팅 채점 반영 · 칩을 눌러 고칠 수 있어요</div></div>';
       else if(G.ai) h += '<div class="heard"><div class="lb">Claude 판정'+(G.added ? ' + 노트에 그대로 쓴 키워드 '+G.added+'개' : "")+' · 칩을 눌러 고칠 수 있어요</div>'+(G.note ? '<div class="fb">'+esc(G.note)+'</div>' : "") +
         (G.extra ? '<div class="fb"><b>키 밖에서 잘 쓴 것:</b> '+esc(G.extra)+'</div>' : "") + (G.wrong ? '<div class="fb" style="color:var(--red)"><b>확인 필요:</b> '+esc(G.wrong)+'</div>' : "") + '</div>';
-      else h += '<p class="note">약어 · 동의어 표로 맞춘 결과입니다. 뜻은 맞는데 빠짐으로 나오면 칩을 눌러 고치세요.</p>';
+      else h += '<p class="note">지금 점수는 약어 · 동의어 표로 맞춘 결과입니다. 정확한 판정은 아래 ‘Claude 채팅으로 채점’을 쓰세요.</p>';
+      h += '<div class="heard" style="border:1.5px solid #2E6DA4"><div class="lb" style="color:#2E6DA4;font-weight:700">Claude 채팅으로 채점</div>' +
+        '<div class="fb">① 요청문 복사 → ② claude.ai 채팅에 붙여넣기 → ③ Claude 답의 맨 끝 <b>채점코드</b> 줄을 아래에 붙여넣고 반영</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">' +
+          '<button class="chip" id="n3Copy" style="background:#2E6DA4;color:#fff;border-color:#2E6DA4">📋 채점 요청 복사</button>' +
+          '<button class="chip" id="n3Open">claude.ai 열기 ↗</button>' +
+          (AI.key && !G.busy ? '<button class="chip" id="n3Api">API로 바로 채점</button>' : "") +
+        '</div>' +
+        (G.showPrompt ? '<div class="fb">자동 복사가 안 됐어요. 아래 글을 길게 눌러 전체 선택 → 복사하세요.</div><textarea id="n3Prompt" readonly style="min-height:140px;font-size:12px">'+esc(n3ChatPrompt(n, note))+'</textarea>' : "") +
+        '<textarea id="n3Paste" placeholder="여기에 붙여넣기 — 채점코드: 1.1 1.3 2.1 … (Claude 답 전체를 붙여도 됩니다)" style="min-height:70px;font-size:14px">'+esc(G.paste)+'</textarea>' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-top:8px"><button class="chip" id="n3Apply" style="background:var(--teal);color:#fff;border-color:var(--teal)">채점 반영</button>' +
+        (G.chatMsg ? '<span class="'+(/못|없/.test(G.chatMsg) ? "er" : "ok")+'" style="font-size:13px">'+esc(G.chatMsg)+'</span>' : "") + '</div></div>';
       h += '<h2>정답 카드와 비교 — 초록 = 씀, 빨강 = 빠짐</h2>' + n.blocks.map((b, i) => {
         const miss = b.kw.some((_, j) => !(G.hit[i] && G.hit[i][j]));
         return '<div class="chk" style="display:block;cursor:default'+(b.star && miss ? ';border-left:4px solid var(--red)' : "")+'">' +
@@ -2676,6 +2746,20 @@ function runN3(code, from, blind){
         const i = +b.dataset.i, j = +b.dataset.j; G.hit[i][j] = !G.hit[i][j]; save(); render();
       });
       const rg = $("n3Regrade"); if(rg) rg.onclick = () => runAI();
+      const api = $("n3Api"); if(api) api.onclick = () => runAI();
+      const pa = $("n3Paste"); if(pa) pa.oninput = () => { G.paste = pa.value; };
+      $("n3Copy").onclick = async () => {
+        const ok = await copyText(n3ChatPrompt(n, note));
+        G.showPrompt = !ok; G.chatMsg = ok ? "복사했어요 — claude.ai 채팅에 붙여넣으세요." : ""; render();
+        if(!ok){ const t = $("n3Prompt"); if(t){ t.focus(); t.select(); } }
+      };
+      $("n3Open").onclick = () => { try{ window.open("https://claude.ai/new", "_blank"); }catch(e){} };
+      $("n3Apply").onclick = () => {
+        const r = n3ParseCode(n, G.paste);
+        if(!r){ G.chatMsg = "채점코드를 못 찾았어요 — '채점코드: 1.1 2.3 …' 줄을 붙여넣으세요."; render(); return; }
+        G.hit = r.hit; G.ai = "chat"; G.err = ""; G.note = ""; G.extra = ""; G.wrong = ""; G.added = 0; rec.ai = "chat";
+        G.chatMsg = "반영했어요 — 맞은 키워드 " + r.count + "개."; save(); render();
+      };
       bar(1);
       const c = n3CaseOf(n), first = c ? SECS.find(x => x.caseId === c.id && x.idx === 0) : null;
       const btns = [{ label:"목록으로", cls:"sec", go:back }, { label:"다시", cls:"sec", go:() => runN3(n.code, R.n3From, N.blind) }];
@@ -2690,7 +2774,6 @@ function runN3(code, from, blind){
       G.busy = false; save(); render();
     };
     render();
-    if(G.busy) await runAI();
   };
   draw();
 }
