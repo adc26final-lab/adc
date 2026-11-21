@@ -41,6 +41,19 @@
   .ent.typ{border-top-color:var(--amber)}
   .ent.kr{border-top-color:#6B4E9B}
   .ent.n3{border-top-color:#2E6DA4}
+  .ent.all{border-top-color:#2F7D5B}
+  /* 전체 듣기 */
+  .row.allrow .cd{color:#2F7D5B}
+  .ablk{margin:22px 0 10px;padding:10px 12px;background:var(--card);border:1px solid var(--rule);border-left:4px solid #2F7D5B;border-radius:3px}
+  .ablk.now{background:#EAF4EF}
+  .ablk .an{font-weight:700;font-size:15.5px}
+  .ablk .at{font-size:13px;color:var(--ink-soft);font-variant-numeric:tabular-nums;margin-top:2px}
+  .ablk .ak{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .ablk .ak span{font-size:12.5px;padding:2px 8px;border-radius:10px;background:var(--paper);border:1px solid var(--rule)}
+  .ablk .ad{font-size:12.5px;color:var(--ink-soft);margin-top:6px;line-height:1.45}
+  .aclock{position:sticky;top:3px;z-index:40;background:var(--paper);padding:6px 0 8px;border-bottom:1px solid var(--rule);font-size:13.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .aclock b{color:var(--ink)}
+  table.kt tr.go{cursor:pointer} table.kt tr.now td{background:#EAF4EF}
   .ent.wide{grid-column:1 / -1}
   /* 한글 롤플레이 */
   .kmodel{margin-top:12px;padding-top:12px;border-top:1px solid var(--rule);font-size:16px;line-height:1.6}
@@ -200,6 +213,7 @@
       <button class="ent typ" id="goType"><div class="t">블록 종류별</div><div class="d">57케이스의 같은 종류 블록을 모아서</div></button>
       <button class="ent rnd wide" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">과목 · 블록 종류를 고르면 무작위로 출제 (놓친 것 위주 가능)</div></button>
       <button class="ent kr wide" id="goKr"><div class="t">한글 롤플레이 (10분 전체)</div><div class="d">10분 롤플레이를 처음부터 끝까지 한국어로 — AI 환자와 대화하고 Claude가 채점, 그다음 영어로</div></button>
+      <button class="ent all wide" id="goAll"><div class="t">스크립트 전체 듣기 (10분)</div><div class="d">케이스 대본을 처음부터 끝까지 영어로 듣기 — 블록 구분 · 시간 분배 · 키워드 표시</div></button>
       <button class="ent n3 wide" id="goN3"><div class="t">3분 노트 채점 (문 밖 3분)</div><div class="d">cue card만 보고 3:00 동안 노트를 타이핑 → 블록별 키워드로 채점 (★ 2점) · 끝나면 Claude가 바로 채점</div></button>
       <button class="ent cont wide hide" id="goLast"><div class="t" id="lastT"></div><div class="d" id="lastD"></div></button>
     </div>
@@ -1007,6 +1021,8 @@ function show(id){
   if(id !== "s-run") R.K = null;
   if(R.N && R.N.timer){ clearInterval(R.N.timer); R.N.timer = null; }
   if(id !== "s-run") R.N = null;
+  if(R.A && R.A.timer){ clearInterval(R.A.timer); R.A.timer = null; }
+  if(id !== "s-run") R.A = null;
   document.querySelectorAll(".stage").forEach(e => e.classList.remove("on"));
   $(id).classList.add("on");
   if(id !== "s-run"){ $("dock").classList.add("hide"); bar(0); }
@@ -1211,6 +1227,7 @@ $("goType").onclick = () => drawPick("type");
 $("goRand").onclick = drawRand;
 $("goKr").onclick = drawKr;
 $("goN3").onclick = drawN3;
+$("goAll").onclick = drawAll;
 $("goLast").onclick = () => { const l = byCode(LS.get("blk.last", "")); if(l){ FROM = "case"; openSec(l.code); } };
 
 /* ── 골라서 하기: 케이스별 · 블록 종류별 ── */
@@ -1224,7 +1241,7 @@ function partHTML(key, title, rows, mode, cur){
   const done = rows.filter(x => isDone(x.code)).length;
   return '<div class="part'+(openPart[mode] === key ? " open" : "")+(cur ? " cur" : "")+'" data-p="'+esc(key)+'">' +
     '<button class="ph"><span class="pt">'+title+'</span><span class="pc">'+done+' / '+rows.length+'</span><span class="arrow">›</span></button>' +
-    '<div class="list">' + (mode === "case" && rows.length ? krRow(key) + n3Row(CASES.find(c => c.id === key) || {}) : "") + rows.map(x => blockRow(x, mode === "type")).join("") + '</div></div>';
+    '<div class="list">' + (mode === "case" && rows.length ? allRow(key) + krRow(key) + n3Row(CASES.find(c => c.id === key) || {}) : "") + rows.map(x => blockRow(x, mode === "type")).join("") + '</div></div>';
 }
 function drawPick(mode){
   mode = mode || FROM; if(mode !== "type") mode = "case";
@@ -1258,6 +1275,7 @@ function drawPick(mode){
   });
   document.querySelectorAll("#parts .row").forEach(b => b.onclick = () => { FROM = mode; openSec(b.dataset.c); });
   document.querySelectorAll("#parts .krrow").forEach(b => b.onclick = () => runKr(b.dataset.k, "case"));
+  document.querySelectorAll("#parts .allrow").forEach(b => b.onclick = () => runAll(b.dataset.k, "case"));
   document.querySelectorAll("#parts .n3row").forEach(b => b.onclick = () => runN3(b.dataset.n, "case"));
   const o = document.querySelector(".part.open"); if(o) setTimeout(() => o.scrollIntoView({ block:"start" }), 0);
 }
@@ -1955,6 +1973,127 @@ function runDeck(items, title, onBack){
     if(miss.length) btns.push({ label:"놓친 것만 다시", go:() => runDeck(shuffle(miss), title, onBack) });
     dock(btns);
   };
+  draw();
+}
+
+/* ── 스크립트 전체 듣기 (10분, 블록 구분 · 시간 분배 · 키워드) ──
+   키워드: 3분 노트 카드(N3)의 블록 키워드를 쓴다 (블록 수가 같을 때). 없으면 '할 일'을 · 로 나눠서.
+   기록: ST.all[caseId] = [ts…] (최근 10개) */
+const AOPT = { get ko(){ return LS.get("blk.allko", true); }, set ko(v){ LS.set("blk.allko", v); } };
+const CIRC_A = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮";
+function allKw(c){
+  const n = n3OfCase(c), ok = !!(n && Array.isArray(n.blocks) && n.blocks.length === c.blocks.length);
+  return c.blocks.map((b, i) => {
+    const kw = ok ? (n.blocks[i].kw || []) : String(b.todo || "").split(/\s*·\s*/).map(x => x.trim()).filter(Boolean);
+    return { kw: kw, star: ok ? !!n.blocks[i].star : /★/.test(b.name || ""), fromN3: ok };
+  });
+}
+function allStat(id){
+  const l = (ST.all || {})[id];
+  return l && l.length ? '<span class="ok">전체 듣기 '+l.length+'회</span> · '+fmtDate(l[l.length-1]) : '<span>아직 안 들음</span>';
+}
+function allRow(caseId){
+  const c = CASES.find(x => x.id === caseId); if(!c) return "";
+  return '<button class="row allrow" data-k="'+esc(c.id)+'"><span class="cd">듣기</span><span class="tt">스크립트 전체 듣기 — 10분'+
+    '<div class="st">블록 '+c.blocks.length+'개 · '+mmssT(caseSec(c))+' · '+allStat(c.id)+'</div></span></button>';
+}
+function drawAll(){
+  FROM = "all";
+  show("s-pick");
+  $("pickTitle").textContent = "스크립트 전체 듣기";
+  $("pickLede").textContent = "10분 대본을 처음부터 끝까지 듣습니다. 블록마다 시간 분배와 키워드가 표시되고, 대사를 누르면 거기서부터 듣습니다.";
+  let h = "", grp = null;
+  CASES.forEach(c => {
+    if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
+    h += '<div class="part"><button class="row arow" data-k="'+esc(c.id)+'"><span class="cd">'+esc(c.cat || "")+'</span>' +
+      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">블록 '+c.blocks.length+'개 · '+mmssT(caseSec(c))+' · '+allStat(c.id)+'</div></span></button></div>';
+  });
+  $("parts").innerHTML = h;
+  document.querySelectorAll("#parts .arow").forEach(b => b.onclick = () => runAll(b.dataset.k, "all"));
+}
+function runAll(caseId, from){
+  const c = CASES.find(x => x.id === caseId); if(!c) return;
+  R.allFrom = from || "all";
+  LS.set("chk.case", c.id);
+  const K = allKw(c), tgt = caseSec(c);
+  const T = [];                                   // 전체 대사를 한 줄로: {b, t}
+  c.blocks.forEach((b, bi) => (b.turns || []).forEach(t => T.push({ b: bi, t: t })));
+  const firstOf = bi => T.findIndex(x => x.b === bi);
+  openRun(c.code + " · 스크립트 전체 듣기", shortTitle(c));
+  const A = { i: 0, playing: false, gen: 0, t0: 0, acc: 0, timer: null };
+  R.A = A;
+  const bname = (b, i) => (CIRC_A[i] || (i + 1) + ".") + " " + (b.name || "블록 " + (i + 1));
+  const elapsed = () => A.acc + (A.t0 ? (Date.now() - A.t0) / 1000 : 0);
+  const head = () => {
+    const cur = T[A.i] ? T[A.i].b : -1, b = c.blocks[cur];
+    return '<div class="aclock">' + (A.playing && b
+      ? '▶ <b>' + esc(bname(b, cur)) + '</b> · 계획 ' + esc(b.start || "") + ' → ' + esc(b.end || "") + ' · 들은 시간 <b id="aEl">' + mmss(elapsed()) + '</b>'
+      : (A.i > 0 ? '⏸ 멈춤 · 들은 시간 ' + mmss(elapsed()) + ' / 계획 ' + mmss(tgt) : '전체 ' + c.blocks.length + '블록 · 계획 ' + mmss(tgt) + ' · 대사 ' + T.length + '줄')) + '</div>';
+  };
+  const plan = () => {
+    const cur = A.playing && T[A.i] ? T[A.i].b : -1;
+    return '<table class="kt" style="margin:10px 0 4px"><tr><th>블록</th><th>시간</th><th>키워드</th></tr>' +
+      c.blocks.map((b, i) => '<tr class="go'+(i === cur ? " now" : "")+'" data-b="'+i+'"><td>'+esc(bname(b, i))+'</td>' +
+        '<td class="n">'+esc(b.start || "")+'–'+esc(b.end || "")+'<br><span style="color:var(--ink-soft)">'+mmssT(b.sec || 60)+'</span></td>' +
+        '<td style="font-size:12.5px">'+K[i].kw.map(esc).join(" · ")+'</td></tr>').join("") + '</table>' +
+      '<p class="note" style="margin-top:2px">'+(K.some(k => k.fromN3) ? "키워드 = 3분 노트 카드" : "키워드 = 블록의 ‘할 일’")+' · 줄을 누르면 그 블록부터 듣습니다.</p>';
+  };
+  const draw = () => {
+    if(R.A !== A) return;
+    const cue = c.cueCard || {};
+    let h = head() +
+      (cue.setting ? '<details style="margin:8px 0"><summary class="linkbtn">Cue card 보기</summary><div class="meta" style="margin-top:6px">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div></details>' : "") +
+      '<details'+(A.i === 0 && !A.playing ? " open" : "")+'><summary class="linkbtn">시간 분배 · 키워드 ('+c.blocks.length+'블록)</summary>' + plan() + '</details>' +
+      '<div class="seg" id="aKo" style="margin:10px 0 4px"><button data-v="1" class="'+(AOPT.ko?"on":"")+'">영어 + 한국어</button><button data-v="0" class="'+(!AOPT.ko?"on":"")+'">영어만</button></div>';
+    let last = -1;
+    T.forEach((x, k) => {
+      if(x.b !== last){
+        last = x.b; const b = c.blocks[x.b], kk = K[x.b];
+        h += '<div class="ablk'+(A.playing && T[A.i] && T[A.i].b === x.b ? " now" : "")+'" id="ab'+x.b+'"><div class="an">'+esc(bname(b, x.b))+'</div>' +
+          '<div class="at">⏱ '+esc(b.start || "")+' → '+esc(b.end || "")+' · '+mmssT(b.sec || 60)+'</div>' +
+          (kk.kw.length ? '<div class="ak">'+kk.kw.map(w => '<span>'+esc(w)+'</span>').join("")+'</div>' : "") +
+          (kk.fromN3 && b.todo ? '<div class="ad">할 일: '+esc(b.todo)+'</div>' : "") + '</div>';
+      }
+      const t = x.t;
+      h += '<div class="turn tap '+t.who+(A.playing && k === A.i ? " now" : "")+'" id="at'+k+'" data-i="'+k+'"><div class="who">'+(t.who === "dr" ? "Dentist" : "Patient")+mustTag({ must:t.ms })+'</div>' +
+        '<div class="en">'+tagify(t.en)+'</div>'+(AOPT.ko && t.ko ? '<div class="ko">'+esc(t.ko)+'</div>' : "")+'</div>';
+    });
+    $("runBody").innerHTML = h;
+    document.querySelectorAll("#runBody .turn.tap").forEach(e => e.onclick = () => jump(+e.dataset.i));
+    document.querySelectorAll("#runBody tr.go").forEach(e => e.onclick = () => { const k = firstOf(+e.dataset.b); if(k >= 0) jump(k); });
+    document.querySelectorAll("#aKo button").forEach(e => e.onclick = () => { AOPT.ko = e.dataset.v === "1"; draw(); scrollNow(); });
+    bar(T.length ? A.i / T.length : 0);
+    const cb = T[A.i] ? T[A.i].b : 0;
+    dock([{ label:"목록으로", cls:"sec", go:back },
+          { label:"다음 블록 ›", cls:"sec", off: cb >= c.blocks.length - 1, go:() => { const k = firstOf(cb + 1); if(k >= 0) jump(k); } },
+          { label: A.playing ? "■ 정지" : (A.i > 0 && A.i < T.length ? "▶ 이어 듣기" : "▶ 처음부터 듣기"), go: toggle }]);
+  };
+  const scrollNow = () => { const el = $("at" + A.i); if(el && A.playing) el.scrollIntoView({ block:"center", behavior:"smooth" }); };
+  const clockOn = () => { if(!A.t0) A.t0 = Date.now(); if(!A.timer) A.timer = setInterval(() => { if(R.A !== A){ clearInterval(A.timer); A.timer = null; return; } const e = $("aEl"); if(e) e.textContent = mmss(elapsed()); }, 500); };
+  const clockOff = () => { if(A.t0){ A.acc += (Date.now() - A.t0) / 1000; A.t0 = 0; } if(A.timer){ clearInterval(A.timer); A.timer = null; } };
+  const step = gen => {
+    if(R.A !== A || !A.playing || gen !== A.gen) return;
+    if(A.i >= T.length){
+      A.playing = false; clockOff(); A.i = 0; A.acc = 0; bar(1);
+      ST.all = ST.all || {}; ST.all[c.id] = (ST.all[c.id] || []).concat(Date.now()).slice(-10); saveST();
+      draw(); return;
+    }
+    draw(); scrollNow();
+    const x = T[A.i];
+    speak(x.t.en, x.t.who, () => {
+      if(R.A !== A || !A.playing || gen !== A.gen) return;
+      const nb = T[A.i + 1] && T[A.i + 1].b !== x.b;      // 블록이 바뀌면 조금 더 쉰다
+      A.i++; setTimeout(() => step(gen), nb ? 1100 : 350);
+    });
+  };
+  const jump = k => { stopSpeak(); A.gen++; A.i = k; A.playing = true; clockOn(); step(A.gen); };
+  const toggle = () => {
+    if(A.playing){ A.playing = false; A.gen++; stopSpeak(); clockOff(); draw(); return; }
+    if(A.i >= T.length) A.i = 0;
+    if(A.i === 0) A.acc = 0;
+    A.playing = true; A.gen++; clockOn(); step(A.gen);
+  };
+  const back = () => { A.playing = false; A.gen++; stopSpeak(); clockOff(); R.allFrom === "case" ? drawPick("case") : drawAll(); };
   draw();
 }
 
