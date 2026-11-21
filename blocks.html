@@ -1963,7 +1963,8 @@ function runDeck(items, title, onBack){
    혼자 하기: 환자 대사(ko)를 읽어 주고, 내 차례 모범 대사는 가려 두고 필요할 때만 본다.
    기록: ST.kr[caseId] = [{s, t, ts, cov?, ai?}] (최근 10개) */
 const KOPT = { get tts(){ return LS.get("blk.krtts", true); }, set tts(v){ LS.set("blk.krtts", v); },
-               get ai(){ return LS.get("blk.krai", true); },   set ai(v){ LS.set("blk.krai", v); } };
+               get ai(){ return LS.get("blk.krai", true); },   set ai(v){ LS.set("blk.krai", v); },
+               get free(){ return LS.get("blk.krfree", true); }, set free(v){ LS.set("blk.krfree", v); } };   // 한글 AI 환자: 자유 대화(기본) / 대본 순서대로
 const krAIok = () => AI.on && canMic();
 const caseSec = c => c.blocks.reduce((a,b) => a + (b.sec || 60), 0);
 function krStat(id){
@@ -2044,9 +2045,15 @@ function runKr(caseId, from){
              "첫 화면에서 Claude 채점이 꺼져 있습니다. 켜 주세요.") + ' 지금은 혼자 하기로 합니다.</p>';
       }
       if(KOPT.ai && krAIok()){
-        h += '<p class="note">영어 ‘환자와 대화’와 같은 방식으로 10분을 처음부터 끝까지 한 번에 합니다. 한 차례 한국어로 말하고 <b>🎤 다 말했어요</b>를 누르면 AI 환자가 한국어로 대답합니다(대답을 만드는 동안 시계 멈춤). 환자 대사가 다 끝나고 마무리하면 저절로 끝나고, <b>■ 끝내기</b>로 언제든 끝낼 수 있습니다. 끝나면 Claude가 꼭 말할 것을 채점합니다.</p>' +
+        h += '<label>환자 방식</label><div class="seg" id="kFree">' +
+          '<button data-v="1" class="'+(KOPT.free?"on":"")+'">자유 대화<br><small>내 말에 맞춰 대답 · 순서 자유</small></button>' +
+          '<button data-v="0" class="'+(!KOPT.free?"on":"")+'">대본 순서대로<br><small>환자 대사를 차례로</small></button></div>' +
+          '<p class="note">' + (KOPT.free
+            ? '환자가 cue card와 대본 내용을 바탕으로 내 질문에 그대로 대답합니다. 대본에 있는 환자 걱정·질문은 어울리는 때에 꺼냅니다. 순서는 상관없어요.'
+            : '환자가 대본의 환자 대사를 차례로 말합니다. 내가 뒤쪽 대사에 해당하는 질문을 먼저 하면 그 대사로 대답하고, 대본에 없는 질문에는 짧게 대답합니다.') +
+          ' 한 차례 한국어로 말하고 <b>🎤 다 말했어요</b>를 누르면 환자가 한국어로 대답합니다(대답을 만드는 동안 시계 멈춤). 마무리 인사를 하면 저절로 끝나고, <b>■ 끝내기</b>로 언제든 끝낼 수 있습니다. 끝나면 Claude가 꼭 말할 것을 채점합니다.</p>' +
              (!vKo ? '<p class="note" style="color:var(--amber)">이 브라우저에 한국어 음성이 없어 환자 대답은 글로만 보일 수 있어요. PC의 Microsoft Edge를 권장합니다.</p>' : "") +
-             '<p class="note">말하기 인식: '+(AI.stt === "scribe" ? "ElevenLabs Scribe(한국어)" : "브라우저 인식(한국어)")+' · 채점 모델: '+esc(AI.model)+' — 첫 화면 설정을 그대로 씁니다. 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
+             '<p class="note">말하기 인식: '+(AI.stt === "scribe" ? "ElevenLabs Scribe(한국어)" : "브라우저 인식(한국어)")+' · 환자 모델: '+esc(AI.rpModel)+' · 채점 모델: '+esc(AI.model)+' — 첫 화면 설정을 그대로 씁니다. 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
       }else{
         h += '<label>환자 대사</label><div class="seg" id="kTts">' +
         '<button data-v="1" class="'+(KOPT.tts?"on":"")+'">한국어로 읽어 주기<br><small>다 읽으면 내 차례로</small></button>' +
@@ -2069,6 +2076,7 @@ function runKr(caseId, from){
     $("runBody").innerHTML = h;
     document.querySelectorAll("#kTts button").forEach(x => x.onclick = () => { KOPT.tts = x.dataset.v === "1"; draw(); });
     document.querySelectorAll("#kMode button").forEach(x => x.onclick = () => { KOPT.ai = x.dataset.v === "1"; draw(); });
+    document.querySelectorAll("#kFree button").forEach(x => x.onclick = () => { KOPT.free = x.dataset.v === "1"; draw(); });
     const cur = $("cur"); if(cur) cur.scrollIntoView({ block:"center", behavior:"smooth" });
     if(K.state === "ready"){ dock([{ label:"목록으로", cls:"sec", go:quit }, { label:"▶ 시작", go:start }]); return; }
     const s = segs[K.i];
@@ -2146,40 +2154,78 @@ function krChecks(c){                 // 10분 전체 체크리스트: 대본 �
 async function krClaude(sys, msgs, maxTok, ms){
   return await claudeCall({ system:sys, messages:msgs, maxTok:maxTok, ms:ms || 30000, tries:2, allowEmpty:true });
 }
-const PATIENT_KR_SYS = [
+/* 환자 대답 앞에 [번호]를 붙이게 해서, 어떤 대본 대사를 썼는지 코드가 기억한다 (10분 동안 위치를 놓치지 않게) */
+const KR_TAG_RULE = [
+  "FORMAT: start every reply with a tag, then a space, then your spoken Korean words.",
+  "  [n]  when the reply uses patient line n from the list (its meaning, said naturally). One line per reply.",
+  "  [-]  for anything else: answering a question from the scenario facts, a backchannel, a clarification question, or a closing.",
+  "Example: [3] 어젯밤부터 계속 욱신거려요.",
+  "Add <<END>> at the very end only when you are closing the consultation.",
+  "No quotation marks, no stage directions, no translation, nothing after the words."
+].join("\n");
+const PATIENT_KR_STRICT_SYS = [
   "You play the PATIENT in a 10-minute role-play for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
-  "A Korean dentist is practising the whole consultation in KOREAN first, to learn the flow before doing it in English. You speak KOREAN only.",
+  "A Korean dentist is practising the whole consultation in KOREAN first, to learn the flow before doing it in English. You speak KOREAN only (해요체).",
   "Their words come from Korean speech recognition and may contain errors: guess what they meant.",
-  "STRICT SCOPE: you may only say the patient lines listed below, one at a time, in order, in natural spoken Korean (해요체) close to the given Korean line.",
-  "Never bring up any other worry, question or topic. No small talk.",
+  "SCRIPT MODE: your main job is to say the patient lines listed below, roughly in order, each at most once, close to the given Korean.",
   "Each reply is exactly one of these:",
   "A) The next unused patient line, when what the dentist just said fits it (they asked the question it answers, or finished the point it reacts to).",
-  "B) A very short question asking what a word means, only if the dentist used medical jargon. At most once per word, and at most three times in the whole consultation.",
-  "C) If the dentist is still explaining and the next line does not fit yet: a one or two word backchannel such as '네.' or '아, 네.' Nothing more. Do not skip ahead.",
-  "D) If every patient line has been used and the dentist is closing (summary, any questions, goodbye): a short closing thanks in Korean, then the tag <<END>>.",
-  "Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI. Never switch to English except for drug or test names.",
-  "Reply with the patient's spoken Korean words only (plus <<END>> when ending). No quotation marks, no stage directions, no translation."
+  "B) A LATER unused line, if the dentist directly asked the question that line answers. Do not wait for the order in that case.",
+  "C) A direct question that no unused line answers: one short plain answer from the scenario facts (under 20 Korean words). Never answer a direct question with only '네.'.",
+  "D) The dentist is still explaining and no line fits yet: a one or two word backchannel such as '네.' or '아, 네.'.",
+  "E) Medical jargon without explanation: a very short question asking what it means (at most three times in the whole consultation).",
+  "F) The dentist is clearly closing (summary, any questions, goodbye): a short thanks in Korean and <<END>>. Close even if some lines are unused.",
+  "Never bring up other worries. No small talk. Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI.",
+  "Never switch to English except for drug or test names.",
+  KR_TAG_RULE
 ].join("\n");
-async function patientReplyKr(c, log){
+const PATIENT_KR_FREE_SYS = [
+  "You play the PATIENT in a 10-minute role-play for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
+  "A Korean dentist is practising the whole consultation in KOREAN first, to learn the flow before doing it in English. You speak KOREAN only (해요체).",
+  "They speak freely, in any order, in their own words. Their words come from Korean speech recognition and may contain errors: guess what they meant.",
+  "React naturally to what the dentist just said, like a real patient: answer their questions, say if you understand, show a natural feeling, or ask a natural follow-up.",
+  "Always answer a direct question. Use the scenario facts below (cue card, hidden facts, model script). Reveal a hidden fact only when the dentist asks something that draws it out. If the facts do not cover it, give a plain, ordinary answer that fits the scenario.",
+  "The listed patient lines are this patient's concerns and questions. Raise each one once, when it fits naturally, roughly in the listed order. Do not force them and never read them as a list.",
+  "Keep each reply short: one or two sentences, under 35 Korean words. Let the dentist lead.",
+  "If the dentist uses medical jargon without explaining it, you may ask what it means (at most three times in total).",
+  "Do not end the consultation yourself. When the dentist clearly closes (summary, any questions, goodbye), answer briefly and add <<END>>.",
+  "Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI. Never switch to English except for drug or test names.",
+  KR_TAG_RULE
+].join("\n");
+async function patientReplyKr(c, log, used, free){
   const T = krTurns(c);
   const ptLines = T.filter(t => t.who === "pt").map(koLine);
-  const used = log.filter(x => x.who === "pt").length;
-  const sys = PATIENT_KR_SYS +
-    ((c.cueCard && c.cueCard.setting) ? "\n\nScenario (cue card): " + c.cueCard.setting : "") +
-    ((c.patient && c.patient.persona) ? "\nWho you are (for voice and mood only): " + c.patient.persona : "") +
-    "\n\nPatient lines, in order (" + ptLines.length + " in total):\n" + ptLines.map((t,i) => (i+1) + ". " + t).join("\n") +
-    "\n\nYou have spoken " + used + " time(s) so far (including clarification questions and backchannels). Work out from the conversation which lines you have already used." +
-    "\n\nModel script in Korean (for context only — to see where each patient line belongs):\n" + T.map(t => (t.who === "dr" ? "치과의사: " : "환자: ") + koLine(t)).join("\n");
+  const cue = c.cueCard || {}, pat = c.patient || {};
+  const hidden = (c.cues || []).map(x => x && (x.hidden || x.reveal)).filter(Boolean);
+  const nextFree = ptLines.findIndex((_, i) => !used.has(i + 1)) + 1;
+  const sys = (free ? PATIENT_KR_FREE_SYS : PATIENT_KR_STRICT_SYS) +
+    (cue.setting ? "\n\nScenario (cue card): " + cue.setting : "") +
+    (pat.persona ? "\nWho you are (for voice and mood only): " + pat.persona : "") +
+    (hidden.length ? "\nHidden facts about you (examiner notes; reveal only when asked):\n" + hidden.map(x => "- " + x).join("\n") : "") +
+    "\n\nPatient lines (" + ptLines.length + " in total). ✓ = already used, do not repeat it:\n" +
+    ptLines.map((t,i) => (used.has(i + 1) ? "✓ " : "  ") + (i+1) + ". " + t).join("\n") +
+    (nextFree ? "\nNext unused line: " + nextFree + "." : "\nAll lines are used: answer briefly, and close with <<END>> when the dentist closes.") +
+    "\n\nModel script in Korean (for facts and context only — the dentist does not have to follow it):\n" +
+    T.map(t => (t.who === "dr" ? "치과의사: " : "환자: ") + koLine(t)).join("\n");
   const msgs = [];
   const push = (role, text) => { const l = msgs[msgs.length-1]; if(l && l.role === role) l.content += "\n" + text; else msgs.push({ role, content:text }); };
   if(log.length && log[0].who === "pt") push("user", "(진료가 시작됩니다. 환자가 먼저 말합니다.)");
-  log.forEach(x => push(x.who === "dr" ? "user" : "assistant", x.who === "dr" ? "치과의사: " + x.en : x.en));
+  log.forEach(x => push(x.who === "dr" ? "user" : "assistant", x.who === "dr" ? "치과의사: " + x.en : (x.tag || "[-]") + " " + x.en));
   if(!msgs.length || msgs[msgs.length-1].role !== "user") push("user", "(치과의사가 기다리고 있습니다.)");
-  let txt = await krClaude(sys, msgs, 200, 30000);
+  // 환자 대답은 채점 설정과 상관없이 롤플레이 모델로 (빠른 모델은 긴 한국어 대본을 따라가지 못한다)
+  let txt = await claudeCall({ model:AI.rpModel, system:sys, messages:msgs, maxTok:220, ms:30000, tries:2, allowEmpty:true });
   const end = /<<\s*END\s*>>/i.test(txt);
-  txt = txt.replace(/<<\s*END\s*>>/ig, "").replace(/^\s*(환자|Patient)\s*[:：]\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*[^*]*\*/g, "").replace(/\s+/g, " ").trim();
+  txt = txt.replace(/<<\s*END\s*>>/ig, "").replace(/^\s*(환자|Patient)\s*[:：]\s*/i, "");
+  let line = 0, tag = "[-]";
+  const m = txt.match(/^\s*\[\s*(\d+|-)\s*\]\s*/);
+  if(m){
+    txt = txt.slice(m[0].length);
+    const n = parseInt(m[1], 10);
+    if(n >= 1 && n <= ptLines.length){ line = n; tag = "[" + n + "]"; }
+  }
+  txt = txt.replace(/\[\s*(\d+|-)\s*\]/g, "").replace(/^\s*(환자|Patient)\s*[:：]\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*[^*]*\*/g, "").replace(/\s+/g, " ").trim();
   if(!txt && !end) throw new Error("빈 대답");
-  return { text: txt, end: end };
+  return { text: txt, end: end, line: line, tag: tag };
 }
 const KR_GRADE_SYS = [
   "You review a 10-minute dental consultation that a Korean dentist practised in KOREAN, to learn the flow before the English ADC Part 2 OSCE (Australian dental licensing exam).",
@@ -2206,7 +2252,8 @@ function runKrAI(caseId){
   const PT_N = T.filter(t => t.who === "pt").length;
   openRun(c.code + " · 한글 롤플레이 (AI 환자)", shortTitle(c));
   resetAttempt();
-  const W = { state:"pt", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false };
+  const W = { state:"pt", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false,
+              used:new Set(), free:KOPT.free };
   R.W = W;
   const now = () => W.acc + (W.seg ? (Date.now() - W.seg) / 1000 : 0);
   const clockOn = () => { if(!W.seg) W.seg = Date.now(); };
@@ -2267,18 +2314,20 @@ function runKrAI(caseId){
     W.log.push({ who:"dr", en:said });
     W.state = "think"; W.thinkMsg = "환자가 생각 중…"; draw();
     let reply;
-    try{ reply = await patientReplyKr(c, W.log); }
+    try{ reply = await patientReplyKr(c, W.log, W.used, W.free); }
     catch(e){ if(!alive()) return; W.note = "환자 대답 실패: " + e.message; W.state = "idleMic"; draw(); return; }
     if(!alive()) return;
-    // 안전장치: 환자 차례가 대본 환자 대사 수 + 10번을 넘으면 마무리
-    const end = reply.end || W.log.filter(x => x.who === "pt").length + 1 >= PT_N + 10;
-    if(reply.text) W.log.push({ who:"pt", en:reply.text });
+    if(reply.line) W.used.add(reply.line);
+    // 마무리: 내 말이 3번 이상일 때만 환자의 <<END>>를 받는다. 안전장치로 환자 차례가 너무 많아지면 끝낸다.
+    const drN = W.log.filter(x => x.who === "dr").length;
+    const end = (reply.end && drN >= 3) || W.log.filter(x => x.who === "pt").length + 1 >= PT_N + (W.free ? 25 : 15);
+    if(reply.text) W.log.push({ who:"pt", en:reply.text, tag:reply.tag });
     patientSays(reply.text || "감사합니다.", end);
   };
   const endAll = () => {
     if(!alive()) return;
     W.tok++; stopSpeak();
-    if(A.phase === "listen"){                // 말하던 중이면 지금까지 말한 것을 기록하고 끝낸다
+    if(A.phase === "listen" && W.state === "me"){   // 내 차례에 말하던 중이면 지금까지 말한 것을 기록하고 끝낸다 (환자가 마무리할 때 마지막 말이 두 번 남지 않게)
       W.state = "think"; W.thinkMsg = "마무리 중…"; draw();
       A.onFinish = said => { said = (said || "").trim(); if(said) W.log.push({ who:"dr", en:said }); finishAll(); };
       A.redraw = () => { if(A.phase === "idle" && A.err){ A.onFinish = null; finishAll(); } };
@@ -2333,7 +2382,7 @@ function runKrAI(caseId){
   W.timer = setInterval(() => { W.sec = now(); krTick(W.sec, tgt); }, 250);
   clockOn();
   const first = T[0];
-  if(first && first.who === "pt"){ const t = koLine(first); W.log.push({ who:"pt", en:t }); patientSays(t, false); }
+  if(first && first.who === "pt"){ const t = koLine(first); W.used.add(1); W.log.push({ who:"pt", en:t, tag:"[1]" }); patientSays(t, false); }
   else myTurn();
 }
 
