@@ -1522,41 +1522,52 @@ function playScript(s){
 }
 const WHOLE_SYS = [
   "You review one spoken section in ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
-  "The candidate is a Korean dentist. They saw only the topic and spoke the dentist's part of this section, alone or with a role-play patient.",
-  "Their words come from speech recognition: ignore recognition errors, fillers and small grammar slips.",
-  "You get a numbered checklist of points the dentist must cover (in Korean) and the model dentist script.",
-  "For each checklist point, decide if the candidate clearly covered it. Different wording is fine. Be fair but not generous: a vague hint is not covered.",
-  "Reply with JSON only, no other text:",
+  "The candidate is a Korean dentist. They saw only the topic and spoke the dentist's part of this section, alone or in a free conversation with a role-play patient.",
+  "They speak in their own words and in any order. The model script shows one good way to say it; it is NOT a list of required words.",
+  "Their words come from speech recognition: ignore recognition errors, misheard terms (e.g. 'MRJ' = MRONJ, 'strengths' = strengthens), cut-off words, fillers and small grammar slips.",
+  "You get a numbered checklist of points the dentist must cover (short Korean keywords) and the model dentist script.",
+  "For each checklist point, decide if the candidate covered its core idea anywhere: in any turn, in any order, also when answering a patient question. Different wording, simpler words or an analogy are fine.",
+  "Not covered: the point is missing, only vaguely hinted, or said wrongly (a wrong fact, number or drug).",
+  "Reply with JSON only, no other text, no code fence:",
   "{\"hit\":[true,false,...],\"note\":\"한국어 두 문장 이내 — 잘한 점 하나와 고칠 점 하나\",\"miss\":\"가장 중요한 빠진 내용 한국어로 짧게, 없으면 빈 문자열\"}",
   "hit must have exactly one boolean per checklist point, in order."
 ].join("\n");
 async function gradeWhole(s, said, log){
   const user = "Topic: " + s.title + "\nChecklist:\n" + s.checks.map((c,i) => (i+1) + ". " + c).join("\n") +
-    "\n\nModel dentist script:\n" + s.script.filter(t => t.who === "dr").map(t => clean(t.en)).join(" ") +
-    (log ? "\n\nThe candidate talked with a patient. Conversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
+    "\n\nModel dentist script (one good way, not required wording):\n" + s.script.filter(t => t.who === "dr").map(t => clean(t.en)).join(" ") +
+    (log ? "\n\nThe candidate talked freely with a patient. Conversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
       "\n\nJudge only the candidate's lines." : "\n\nCandidate said:\n" + said);
-  const ac = typeof AbortController === "function" ? new AbortController() : null;
-  const bell = ac ? setTimeout(() => ac.abort(), 60000) : null;
-  let res;
-  try{
-    res = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST", signal: ac ? ac.signal : undefined,
-      headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
-                "anthropic-dangerous-direct-browser-access":"true" },
-      body: JSON.stringify({ model:AI.model, max_tokens:500, system:WHOLE_SYS, messages:[{ role:"user", content:user }] })
-    });
-  }catch(e){ throw new Error(e && e.name === "AbortError" ? "응답이 너무 늦습니다." : "네트워크에 닿지 못했습니다."); }
-  finally{ if(bell) clearTimeout(bell); }
-  if(!res.ok){
-    if(res.status === 401) throw new Error("Claude API 키가 거부됐습니다.");
-    if(res.status === 429) throw new Error("요청 한도에 걸렸습니다.");
-    throw new Error("API 오류 " + res.status);
+  // 대화 채점은 롤플레이 모델로 (빠른 모델은 대본과 다르게 말하면 놓친다). 붐빔 · 빈 결과 · 잘린 JSON이면 다시 — 마지막은 롤플레이 모델
+  const models = log ? [AI.rpModel, AI.rpModel, AI.rpModel] : [AI.model, AI.model, AI.rpModel];
+  let lastErr = null;
+  for(let k = 0; k < models.length; k++){
+    if(k) await new Promise(r => setTimeout(r, k === 1 ? 1500 : 4000));
+    const ac = typeof AbortController === "function" ? new AbortController() : null;
+    const bell = ac ? setTimeout(() => ac.abort(), 60000) : null;
+    let res;
+    try{
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", signal: ac ? ac.signal : undefined,
+        headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
+                  "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ model:models[k], max_tokens:1500, system:WHOLE_SYS, messages:[{ role:"user", content:user }] })
+      });
+    }catch(e){ lastErr = new Error(e && e.name === "AbortError" ? "응답이 너무 늦습니다." : "네트워크에 닿지 못했습니다."); continue; }
+    finally{ if(bell) clearTimeout(bell); }
+    if(!res.ok){
+      if(res.status === 401) throw new Error("Claude API 키가 거부됐습니다.");
+      if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + models[k]);
+      lastErr = new Error(res.status === 429 ? "요청 한도에 걸렸습니다." : res.status === 529 ? "Claude 서버가 붐빕니다." : "API 오류 " + res.status);
+      continue;
+    }
+    let data; try{ data = await res.json(); }catch(e){ lastErr = new Error("응답을 읽지 못했습니다."); continue; }
+    const txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").replace(/```(?:json)?/g, "");
+    const m = txt.match(/\{[\s\S]*\}/);
+    let j = null; try{ j = m ? JSON.parse(m[0]) : null; }catch(e){ j = null; }
+    if(j && Array.isArray(j.hit)) return j;
+    lastErr = new Error("결과를 읽지 못했습니다" + (data.stop_reason === "max_tokens" ? " (답이 잘림)" : "") + ".");
   }
-  const data = await res.json();
-  const txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
-  const m = txt.match(/\{[\s\S]*\}/);
-  if(!m) throw new Error("결과를 읽지 못했습니다.");
-  return JSON.parse(m[0]);
+  throw lastErr || new Error("채점 오류");
 }
 
 function markSec(code, gt){
