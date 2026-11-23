@@ -2909,7 +2909,7 @@ const N3_SYN = [
   ["sealant","실란트","fissure sealant"], ["disclosing","착색제","disclosing agent"], ["칫솔","toothbrush","brush"], ["치약","toothpaste","paste"],
   ["전동칫솔","electric toothbrush","electric brush"], ["혈액검사","blood test","혈액","bloods"], ["fhx","가족력","family history","가족","유전"],
   ["ix","검사","investigation","investigations","special test"], ["ice","생각","걱정","기대","concern","concerns","worry","expectation","expect"],
-  ["consent","동의서","서면 동의"], ["ga","전신마취","general anaesthetic","general anesthetic"], ["cdbs","아동 치과 보조금","child dental benefits"], ["do nothing","관찰만","그대로 두기","그냥 두기"], ["hba1c","a1c","당화혈색소"], ["now","지금","현재","today","오늘"], ["blood","혈류","혈액","blood flow","혈관"], ["dense","치밀","단단"], ["heal","치유","아물","낫","healing"], ["remove","제거","빼"]
+  ["consent","동의서","서면 동의"], ["ga","전신마취","general anaesthetic","general anesthetic"], ["cdbs","아동 치과 보조금","child dental benefits"], ["do nothing","관찰만","그대로 두기","그냥 두기"], ["hba1c","a1c","당화혈색소"], ["now","지금","현재","today","오늘"], ["blood","혈류","혈액","blood flow","혈관"], ["dense","치밀","단단"], ["heal","치유","아물","낫","healing"], ["remove","제거","빼"], ["change","changes","changed","변화","바뀌","바뀜","달라"]
 ];
 const N3_IDX = new Map();
 const n3norm = s => String(s||"").toLowerCase().replace(/[–‒—~]/g, "-").replace(/[^a-z0-9가-힣%\-/.]/g, "");
@@ -2940,7 +2940,7 @@ const N3_NEG = /[✕×❌]|(^|[^a-z])x($|[^a-z])|\bno\b|\bnot\b|\bdon'?t\b|never
 n3LoadAbbr();
 /* 키워드 → 맞출 말 묶음들 */
 function n3Tokens(kw){
-  let s = String(kw||"").toLowerCase().replace(/[–‒—]/g, "-").replace(/["“”'’]/g, " ");
+  let s = String(kw||"").toLowerCase().replace(/[–‒—]/g, "-").replace(/["“”'’]/g, " ").replace(/[δΔ]/g, " change ").replace(/±/g, " ");
   const toks = [];
   N3_PHRASES.forEach(p => { if(s.includes(p)){ toks.push(p); s = s.split(p).join(" "); } });
   s.split(/[\s→←↔+=,()·?!:;<>↑↓≠★✕×①②③④⑤|&]+/).forEach(t => {
@@ -2960,7 +2960,7 @@ function n3Tokens(kw){
     const m3 = n.match(/^(\d+(?:-\d+)?)(세|살|회|번)$/);
     if(m3){ const pair = { 세:["살","세","yo","y","years"], 살:["세","살","yo"], 회:["번","회","x","times"], 번:["회","번","x","times"] }[m3[2]]; pair.forEach(u => alts.add(m3[1] + u)); }
     return { t, alts:[...alts].filter(Boolean) };
-  });
+  }).filter(x => x.alts.length);      // 기호만 있던 토큰(빈 글자)은 버린다 — 남기면 채점이 멈춘다
 }
 /* 노트 준비: 붙여 쓴 글자열 · 낱말 목록 · 줄 */
 function n3Prep(note){
@@ -2970,6 +2970,7 @@ function n3Prep(note){
   return { low, flat: n3norm(low).replace(/[/.]/g, ""), words, lines: low.split(/\n+/) };
 }
 function n3AltHit(a, P){
+  if(!a) return false;
   const isAscii = /^[a-z0-9%\-/.]+$/.test(a);
   if(isAscii && a.replace(/[^a-z0-9]/g, "").length <= 3) return P.words.has(a) || P.words.has(a.replace(/[/.]/g, ""));
   if(!isAscii && a.length === 1){ for(const w of P.words) if(w.startsWith(a)) return true; return false; }
@@ -3088,7 +3089,8 @@ async function gradeN3(n, note){
     if(AI.model === FAST_MODEL || !/요청 오류|모델 이름/.test(e.message) || /크레딧/.test(e.message)) throw e;
     j = await call(FAST_MODEL);
   }
-  const ai = n3HitIds(n, j), strong = n3LocalStrong(n, note);
+  const ai = n3HitIds(n, j);
+  let strong; try{ strong = n3LocalStrong(n, note); }catch(e){ strong = n.blocks.map(b => b.kw.map(() => false)); }
   const hit = ai.map((row, i) => row.map((v, k) => v || strong[i][k]));       // Claude 판정 + 글자 그대로 쓴 것
   const added = ai.reduce((a, row, i) => a + row.filter((v, k) => !v && strong[i][k]).length, 0);
   return { hit, note: j.note || "", extra: j.extra || "", wrong: j.wrong || "", added };
