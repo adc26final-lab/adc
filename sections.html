@@ -1161,7 +1161,8 @@ function secTimes(s){
 const WOPT = {
   get pt(){ return LS.get("sec.wpt", "skip"); }, set pt(v){ LS.set("sec.wpt", v); },
   get hint(){ return LS.get("sec.whint", false); }, set hint(v){ LS.set("sec.whint", v); },
-  get conv(){ return LS.get("sec.wconv", true); }, set conv(v){ LS.set("sec.wconv", v); }
+  get conv(){ return LS.get("sec.wconv", true); }, set conv(v){ LS.set("sec.wconv", v); },
+  get free(){ return LS.get("sec.wfree", true); }, set free(v){ LS.set("sec.wfree", v); }    // 자유 대화(기본) / 대본 순서대로
 };
 function runWhole(){
   const s = R.sec, tm = secTimes(s);
@@ -1172,7 +1173,7 @@ function runWhole(){
     ? "주제만 보고 Dentist 역할로 말하세요. 한 차례 말한 뒤 ‘다 말했어요’를 누르면 환자가 대답합니다."
     : "주제만 보고 이 섹션에서 Dentist가 할 말을 처음부터 끝까지 말하세요. 시작을 누르면 시계가 갑니다.");
   resetAttempt();
-  const W = { state:"ready", acc:0, seg:0, sec:0, timer:null, log:[], my:[], conv:false, ending:false, userStop:false, note:"" };
+  const W = { state:"ready", acc:0, seg:0, sec:0, timer:null, log:[], my:[], conv:false, free:WOPT.free, ending:false, userStop:false, note:"" };
   R.W = W;
   const open1 = s.script[0] && s.script[0].who === "pt" ? s.script[0] : null;
 
@@ -1210,6 +1211,10 @@ function runWhole(){
            "첫 화면에서 Claude 채점이 꺼져 있어 환자가 대답할 수 없습니다. 켜 주세요.") + ' 지금은 혼자 말하기로 합니다.</p>';
     }
     if(convOK()){
+      h += '<label>환자 방식</label><div class="seg" id="wFree">' +
+        '<button data-v="1" class="'+(WOPT.free?"on":"")+'">자유 대화<br><small>대본에서 벗어나도 내 말에 맞춰 대답</small></button>' +
+        '<button data-v="0" class="'+(!WOPT.free?"on":"")+'">대본 순서대로<br><small>환자 대사를 차례로</small></button></div>' +
+        '<p class="note">'+(WOPT.free ? "내 말을 듣고 진짜 환자처럼 대답합니다. 대본 순서 · 표현과 달라도 괜찮아요. 대본 속 환자 걱정은 어울리는 때에 꺼냅니다. 끝낼 때는 <b>■ 섹션 끝</b>." : "환자가 이 섹션의 환자 대사를 차례로 말하고, 다 쓰면 저절로 끝납니다.")+'</p>';
       h += '<p class="note">'+(open1 ? "환자가 먼저 말을 꺼냅니다. " : "")+'내가 한 차례 말하고 <b>🎤 다 말했어요</b>를 누르면 Claude가 그 말에 맞춰 환자 대답을 만들어 읽어 줍니다. 대답을 만드는 동안은 시계가 멈춥니다. 섹션을 다 말했으면 <b>■ 섹션 끝</b>.</p>' +
            '<p class="note">목표 시간은 환자 대사를 포함한 섹션 시간('+mmss(tm.total)+')입니다.</p>';
     }else{
@@ -1238,6 +1243,7 @@ function runWhole(){
     }
     $("runBody").innerHTML = h;
     const hb = $("wHintBtn"); if(hb) hb.onclick = () => { WOPT.hint = !WOPT.hint; draw(); };
+    document.querySelectorAll("#wFree button").forEach(b => b.onclick = () => { WOPT.free = b.dataset.v === "1"; W.free = WOPT.free; draw(); });
     document.querySelectorAll("#wPt button").forEach(b => b.onclick = () => { WOPT.pt = b.dataset.v; draw(); });
     document.querySelectorAll("#wConv button").forEach(b => b.onclick = () => { WOPT.conv = b.dataset.v === "1"; runWhole(); });
     const last = $("wLast"); if(last && W.conv) last.scrollIntoView({ block:"center", behavior:"smooth" });
@@ -1322,13 +1328,13 @@ function runWhole(){
     W.log.push({ who:"dr", en:said }); W.my.push(said);
     W.state = "think"; W.thinkMsg = "환자가 생각 중…"; draw();
     let reply;
-    try{ reply = await patientReply(s, W.log); }
+    try{ reply = await patientReply(s, W.log, W.free); }
     catch(e){ if(R.W !== W) return; W.note = "환자 대답 실패: " + e.message; W.state = "idleMic"; draw(); return; }
     if(R.W !== W || W.ending) return;
     // 상한: 이 섹션 환자 대사 수 + 확인 질문 2번을 넘으면 더 끌지 않고 끝낸다
     const ptTurns = W.log.filter(x => x.who === "pt").length + 1;
     const cap = s.script.filter(t => t.who === "pt").length + 2;
-    const end = reply.end || ptTurns >= cap;
+    const end = W.free ? false : (reply.end || ptTurns >= cap);   // 자유 대화는 내가 ■ 섹션 끝을 누를 때까지 계속
     if(reply.text){ W.log.push({ who:"pt", en:reply.text }); }
     if(end){ W.autoEnd = true; patientSays(reply.text || "Okay, thank you.", true); }
     else patientSays(reply.text);
@@ -1443,47 +1449,70 @@ const PATIENT_SYS = [
   "Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI.",
   "Plain everyday Australian English. Reply with the patient's spoken words only (plus <<END>> when ending). No quotation marks, no stage directions."
 ].join("\n");
-async function patientReply(s, log){
+const PATIENT_FREE_SYS = [
+  "You play the PATIENT in a role-play for ADC Part 2 OSCE communication practice (Australian dental licensing exam).",
+  "A Korean dentist is practising ONE part (section) of a consultation in English. They speak freely, in any order, in their own words. They may go off the model script: that is fine.",
+  "Their words come from speech recognition and may contain errors, cut-off words or unfinished sentences: guess what they meant and reply to that.",
+  "React naturally to what the dentist just said, like a real patient: answer their questions, say if you understand, show a natural feeling, or ask a natural follow-up question.",
+  "If the dentist stopped mid-sentence or is clearly still explaining, give a short natural backchannel such as 'Okay.' or 'Right, go on.'",
+  "Stay consistent with the scenario facts below (your history, symptoms, worries). If asked something the facts do not cover, give a plain, ordinary answer that fits.",
+  "The listed patient lines are concerns this patient may have. Raise one only when it fits naturally. Any order is fine. Do not force them, and never read them as a list.",
+  "If the dentist uses medical jargon without explaining it, you may ask what it means (at most twice in total).",
+  "Keep each reply short: one or two sentences, under 25 words. Let the dentist lead.",
+  "Do not end the consultation yourself. If the dentist wraps up, answer briefly (for example 'No, that's all. Thank you.').",
+  "Never coach, grade or correct the dentist. Never mention the script, the exam, or being an AI.",
+  "Always say something. Plain everyday Australian English. Reply with the patient's spoken words only. No quotation marks, no stage directions."
+].join("\n");
+async function patientReply(s, log, free){
   const ptLines = s.script.filter(t => t.who === "pt").map(t => clean(t.en));
   const used = log.filter(x => x.who === "pt").length;
-  const sys = PATIENT_SYS + "\n\nSection topic: " + s.title +
+  const sys = (free ? PATIENT_FREE_SYS : PATIENT_SYS) + "\n\nSection topic: " + s.title +
     ((s.info||{})["기본 시나리오"] ? "\nScenario: " + s.info["기본 시나리오"] : "") +
-    "\n\nPatient lines for this section, in order (" + ptLines.length + " in total):\n" +
-    (ptLines.length ? ptLines.map((t,i) => (i+1) + ". " + t).join("\n") : "(none — the patient only listens and closes)") +
-    "\n\nYou have spoken " + used + " time(s) so far in this section (this count includes any clarification questions)." +
+    (free ? "\n\nConcerns this patient may naturally raise (optional, any order):\n" + (ptLines.length ? ptLines.map(t => "- " + t).join("\n") : "(none — mostly listen and react)")
+          : "\n\nPatient lines for this section, in order (" + ptLines.length + " in total):\n" +
+            (ptLines.length ? ptLines.map((t,i) => (i+1) + ". " + t).join("\n") : "(none — the patient only listens and closes)") +
+            "\n\nYou have spoken " + used + " time(s) so far in this section (this count includes any clarification questions).") +
     "\n\nWhat the dentist should cover in this section (for judging when it is done; never say this to the dentist):\n" +
     (s.checks || []).map(c => "- " + c).join("\n") +
-    "\n\nModel script (for context only):\n" +
+    "\n\nModel script (for context only — the dentist does not have to follow it):\n" +
     s.script.map(t => (t.who === "dr" ? "Dentist: " : "Patient: ") + clean(t.en)).join("\n");
   const msgs = [];
   const push = (role, text) => { const last = msgs[msgs.length-1]; if(last && last.role === role) last.content += "\n" + text; else msgs.push({ role, content:text }); };
   if(log.length && log[0].who === "pt") push("user", "(The consultation starts. You speak first.)");
   log.forEach(x => push(x.who === "dr" ? "user" : "assistant", x.who === "dr" ? "Dentist: " + x.en : x.en));
   if(!msgs.length || msgs[msgs.length-1].role !== "user") push("user", "(The dentist is waiting for you.)");
-  const ac = typeof AbortController === "function" ? new AbortController() : null;
-  const bell = ac ? setTimeout(() => ac.abort(), 30000) : null;
-  let res;
-  try{
-    res = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST", signal: ac ? ac.signal : undefined,
-      headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
-                "anthropic-dangerous-direct-browser-access":"true" },
-      body: JSON.stringify({ model:AI.model, max_tokens:150, system:sys, messages:msgs })
-    });
-  }catch(e){ throw new Error(e && e.name === "AbortError" ? "응답이 너무 늦습니다." : "네트워크에 닿지 못했습니다."); }
-  finally{ if(bell) clearTimeout(bell); }
-  if(!res.ok){
-    if(res.status === 401) throw new Error("Claude API 키가 거부됐습니다.");
-    if(res.status === 429) throw new Error("요청 한도에 걸렸습니다.");
-    if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + AI.model);
-    throw new Error("API 오류 " + res.status);
+  // 환자 대답은 롤플레이 모델로 (빠른 모델은 대본에서 벗어난 말에 빈 대답을 내기도 한다). 비거나 붐비면 한 번 더.
+  let lastErr = null;
+  for(let k = 0; k < 2; k++){
+    if(k) await new Promise(r => setTimeout(r, 1200));
+    const m2 = k ? msgs.map((m, i) => i === msgs.length - 1 ? { role:m.role, content:m.content + "\n(Reply now as the patient, in one short sentence.)" } : m) : msgs;
+    const ac = typeof AbortController === "function" ? new AbortController() : null;
+    const bell = ac ? setTimeout(() => ac.abort(), 30000) : null;
+    let res;
+    try{
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", signal: ac ? ac.signal : undefined,
+        headers:{ "content-type":"application/json", "x-api-key":AI.key, "anthropic-version":"2023-06-01",
+                  "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ model:AI.rpModel, max_tokens:200, system:sys, messages:m2 })
+      });
+    }catch(e){ lastErr = new Error(e && e.name === "AbortError" ? "응답이 너무 늦습니다." : "네트워크에 닿지 못했습니다."); continue; }
+    finally{ if(bell) clearTimeout(bell); }
+    if(!res.ok){
+      if(res.status === 401) throw new Error("Claude API 키가 거부됐습니다.");
+      if(res.status === 404) throw new Error("모델 이름이 잘못됐습니다: " + AI.rpModel);
+      lastErr = new Error(res.status === 429 ? "요청 한도에 걸렸습니다." : res.status === 529 ? "Claude 서버가 붐빕니다." : "API 오류 " + res.status);
+      continue;
+    }
+    const data = await res.json();
+    let txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
+    const end = !free && /<<\s*END\s*>>/i.test(txt);
+    txt = txt.replace(/<<\s*END\s*>>/ig, "").replace(/^\s*(Patient:)\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*[^*]*\*/g, "").replace(/\s+/g, " ").trim();
+    if(txt || end) return { text: txt, end: end };
+    lastErr = new Error("빈 대답");
   }
-  const data = await res.json();
-  let txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join(" ").trim();
-  const end = /<<\s*END\s*>>/i.test(txt);
-  txt = txt.replace(/<<\s*END\s*>>/ig, "").replace(/^\s*(Patient:)\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*[^*]*\*/g, "").replace(/\s+/g, " ").trim();
-  if(!txt && !end) throw new Error("빈 대답");
-  return { text: txt, end: end };
+  if(lastErr && lastErr.message === "빈 대답") return { text: "Okay.", end: false };   // 두 번 다 비면 맞장구로 이어 간다
+  throw lastErr || new Error("환자 대답 오류");
 }
 
 function playScript(s){
