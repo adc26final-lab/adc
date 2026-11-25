@@ -2163,6 +2163,47 @@ function krTick(sec, tgt){
   const i = $("kBar"); if(i){ i.style.width = Math.min(100, r/1.1*100) + "%"; i.className = cls; }
   bar(Math.min(1, r));
 }
+/* ── 문 밖 3분 (실제 시험처럼): 롤플레이 시작 전 화면에 3:00 카운트다운 ──
+   시간이 남아도 ▶ 시작으로 언제든 들어갈 수 있다. 0:00이 되면 짧게 '띵' 하고 알려 준다.
+   시작 전 화면을 다시 그려도 시계는 이어지고, 그 화면을 떠나면 저절로 멈춘다. */
+const READ_SEC = 180;
+const RT = { t0:0, timer:null, rang:false };
+const rtLeft = () => Math.max(0, READ_SEC - (Date.now() - RT.t0) / 1000);
+function readTimerStart(){
+  if(RT.timer) clearInterval(RT.timer);
+  RT.t0 = Date.now(); RT.rang = false;
+  RT.timer = setInterval(readTimerTick, 250);
+}
+function readTimerHTML(){
+  const left = rtLeft(), done = left <= 0, cls = done ? "over" : left <= 30 ? "warn" : "";
+  return '<div class="clockbox"><div class="row1"><div class="big '+cls+'" id="rtBig">'+mmss(Math.ceil(left))+'</div>' +
+    '<div class="tgt" id="rtTxt">'+(done ? '<b style="color:var(--red)">시간 됐어요 — ▶ 시작을 누르고 들어가세요</b>' : '문 밖 3분 — cue card 읽기<br>다 안 돼도 ▶ 시작으로 바로 들어갈 수 있어요')+'</div></div>' +
+    '<div class="tbar"><i id="rtBar" class="'+cls+'" style="width:'+((READ_SEC - left) / READ_SEC * 100)+'%"></i></div></div>';
+}
+function readBell(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext; if(!Ctx) return;
+    if(!AC) AC = new Ctx();
+    if(AC.state === "suspended") AC.resume().catch(() => {});
+    [0, 0.45].forEach(at => {
+      const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + at;
+      o.frequency.value = 880; o.connect(g); g.connect(AC.destination);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      o.start(t); o.stop(t + 0.4);
+    });
+  }catch(e){}
+}
+function readTimerTick(){
+  const big = $("rtBig");
+  if(!big){ clearInterval(RT.timer); RT.timer = null; return; }   // 시작했거나 다른 화면으로 갔다
+  const left = rtLeft(), done = left <= 0, cls = done ? "over" : left <= 30 ? "warn" : "";
+  big.textContent = mmss(Math.ceil(left)); big.className = "big " + cls;
+  const b = $("rtBar"); if(b){ b.style.width = ((READ_SEC - left) / READ_SEC * 100) + "%"; b.className = cls; }
+  if(done && !RT.rang){
+    RT.rang = true; readBell();
+    const t = $("rtTxt"); if(t) t.innerHTML = '<b style="color:var(--red)">시간 됐어요 — ▶ 시작을 누르고 들어가세요</b>';
+  }
+}
 function runKr(caseId, from){
   const c = CASES.find(x => x.id === caseId); if(!c) return;
   R.krFrom = from || "kr";
@@ -2171,6 +2212,7 @@ function runKr(caseId, from){
   openRun(c.code + " · 한글 롤플레이", shortTitle(c));
   const K = { state:"ready", i:0, t0:0, sec:0, timer:null, veil:true };
   R.K = K;
+  readTimerStart();
   const auto = () => KOPT.tts && canSpeak && !!vKo;
   const now = () => K.t0 ? (Date.now() - K.t0) / 1000 : 0;
   const segHTML = s => s.who === "pt"
@@ -2181,7 +2223,7 @@ function runKr(caseId, from){
     let h = "";
     if(K.state === "ready"){
       const cue = c.cueCard || {};
-      h = '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
+      h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
         (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' +
         '<label>방식</label><div class="seg" id="kMode">' +
         '<button data-v="1" class="'+(KOPT.ai?"on":"")+'">AI 환자와 대화<br><small>음성 인식 · Claude 채점</small></button>' +
@@ -2743,7 +2785,7 @@ function runFull(caseId, from){
 
   const drawReady = () => {
     const cue = c.cueCard || {};
-    let h = '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · 영어</div><div class="en">'+esc(shortTitle(c))+'</div>' +
+    let h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · 영어</div><div class="en">'+esc(shortTitle(c))+'</div>' +
       (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>';
     if(!fullAIok()){
       h += '<p class="note" style="color:var(--red)">' + (!canMic() ? "이 브라우저는 음성 인식이 안 됩니다(크롬 · Edge 권장)." :
@@ -2894,6 +2936,7 @@ function runFull(caseId, from){
     if(first && first.who === "pt"){ const t = untag(first.en); W.log.push({ who:"pt", en:t }); patientSays(t, false); }
     else myTurn();
   };
+  readTimerStart();
   drawReady();
 }
 
