@@ -213,15 +213,19 @@
 
   <div id="haveData" class="hide">
     <div class="entry">
-      <button class="ent" id="goCase"><div class="t">케이스별</div><div class="d">과목 → 케이스 → 블록 ①②③</div></button>
+      <button class="ent wide" id="goCase"><div class="t">케이스 선택</div><div class="d">케이스를 먼저 고르고 → 블록 연습 · 한글 롤플레이 · 3분 노트 · 영어 롤플레이 · 스크립트 듣기</div></button>
+      <button class="ent cont wide hide" id="goLast"><div class="t" id="lastT"></div><div class="d" id="lastD"></div></button>
       <button class="ent typ" id="goType"><div class="t">블록 종류별</div><div class="d">57케이스의 같은 종류 블록을 모아서</div></button>
-      <button class="ent rnd wide" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">과목 · 블록 종류를 고르면 무작위로 출제 (놓친 것 위주 가능)</div></button>
+      <button class="ent rnd" id="goRand"><div class="t">랜덤으로 하기</div><div class="d">과목 · 블록 종류를 고르면 무작위로 출제 (놓친 것 위주 가능)</div></button>
+    </div>
+    <details style="margin:4px 0 8px"><summary class="linkbtn">메뉴부터 고르기 (예전 방식)</summary>
+    <div class="entry" style="margin-top:8px">
       <button class="ent kr wide" id="goKr"><div class="t">한글 롤플레이 (10분 전체)</div><div class="d">10분 롤플레이를 처음부터 끝까지 한국어로 — AI 환자와 대화하고 Claude가 채점, 그다음 영어로</div></button>
       <button class="ent full wide" id="goFull"><div class="t">전체 롤플레이 (10분 · AI 환자 · 채점)</div><div class="d">대본 없이 10분 전체를 영어로 — AI 환자가 자유롭게 대화하고, 끝나면 Claude가 시험관처럼 채점 (PASS / BORDERLINE / FAIL)</div></button>
       <button class="ent all wide" id="goAll"><div class="t">스크립트 전체 듣기 (10분)</div><div class="d">케이스 대본을 처음부터 끝까지 영어로 듣기 — 블록 구분 · 시간 분배 · 키워드 표시</div></button>
       <button class="ent n3 wide" id="goN3"><div class="t">3분 노트 채점 (문 밖 3분)</div><div class="d">cue card만 보고 3:00 동안 노트를 타이핑 → 블록별 키워드로 채점 (★ 2점) · 끝나면 Claude가 바로 채점</div></button>
-      <button class="ent cont wide hide" id="goLast"><div class="t" id="lastT"></div><div class="d" id="lastD"></div></button>
     </div>
+    </details>
     <p class="note" id="sumLine"></p>
     <p class="note hide" id="koWarn" style="color:var(--red)"></p>
 
@@ -1227,14 +1231,14 @@ $("resetStats").onclick = () => {
   if(!confirm("블록 연습 기록(횟수 · 놓친 문장 · 시간 · 셀프 체크 · 3분 노트 점수)을 모두 지울까요? 케이스 데이터와 다른 페이지 기록은 그대로입니다.")) return;
   ST = { sec:{}, miss:{}, seen:{}, chk:{}, time:{} }; saveST(); home();
 };
-$("goCase").onclick = () => drawPick("case");
+$("goCase").onclick = () => { SELCASE = null; drawPick("case"); };
 $("goType").onclick = () => drawPick("type");
 $("goRand").onclick = drawRand;
 $("goKr").onclick = drawKr;
 $("goN3").onclick = drawN3;
 $("goAll").onclick = drawAll;
 $("goFull").onclick = drawFull;
-$("goLast").onclick = () => { const l = byCode(LS.get("blk.last", "")); if(l){ FROM = "case"; openSec(l.code); } };
+$("goLast").onclick = () => { const l = byCode(LS.get("blk.last", "")); if(l){ SELCASE = l.caseId; FROM = "case"; openSec(l.code); } };
 
 /* ── 골라서 하기: 케이스별 · 블록 종류별 ── */
 let openPart = { case:null, type:null };
@@ -1242,6 +1246,33 @@ function blockRow(x, withCase){
   return '<button class="row" data-c="'+esc(x.code)+'"><span class="cd'+(withCase ? " w" : "")+'">'+esc(withCase ? x.label : (CIRC[x.idx] || x.idx+1))+'</span>' +
     '<span class="tt">'+esc(x.title)+(withCase ? "" : '<span class="cat">'+esc(CAT_T[x.cat]||"")+'</span>') +
     '<div class="st">'+(withCase ? esc(x.partTitle)+" · " : "")+mmssT(x.sec)+' · '+secStat(x.code)+'</div></span></button>';
+}
+/* 케이스를 고른 뒤의 메뉴: 블록 연습 → 한글 롤플레이 → 3분 노트 → 영어 롤플레이 → 스크립트 듣기 */
+let SELCASE = null;
+function drawCaseMenu(c){
+  FROM = "case"; SELCASE = c.id;
+  show("s-pick");
+  $("pickTitle").textContent = c.code + " · " + shortTitle(c);
+  const cue = c.cueCard || {};
+  $("pickLede").textContent = cue.setting || "";
+  const rows = SECS.filter(x => x.caseId === c.id), done = rows.filter(x => isDone(x.code)).length;
+  const blkOpen = openPart.case === c.id;
+  let h = '<button class="linkbtn" id="toCases" style="margin:-4px 0 8px">← 다른 케이스 고르기</button>' +
+    '<div class="part'+(blkOpen ? " open" : "")+'" data-p="'+esc(c.id)+'">' +
+    '<button class="ph"><span class="pt"><b>블록 연습</b> '+esc((CIRC[0] || "1") + "–" + (CIRC[rows.length-1] || rows.length))+'</span><span class="pc">'+done+' / '+rows.length+'</span><span class="arrow">›</span></button>' +
+    '<div class="list">' + rows.map(x => blockRow(x, false)).join("") + '</div></div>' +
+    '<div class="part open"><div class="list" style="border-top:0">' + krRow(c.id) + n3Row(c) + fullRow(c.id) + allRow(c.id) + '</div></div>';
+  $("parts").innerHTML = h;
+  $("toCases").onclick = () => { SELCASE = null; drawPick("case"); window.scrollTo(0, 0); };
+  document.querySelector("#parts .part .ph").onclick = () => {
+    openPart.case = openPart.case === c.id ? null : c.id;
+    document.querySelector("#parts .part").classList.toggle("open", openPart.case === c.id);
+  };
+  document.querySelectorAll("#parts .row[data-c]").forEach(b => b.onclick = () => { FROM = "case"; openPart.case = c.id; openSec(b.dataset.c); });
+  document.querySelectorAll("#parts .krrow").forEach(b => b.onclick = () => runKr(b.dataset.k, "case"));
+  document.querySelectorAll("#parts .allrow").forEach(b => b.onclick = () => runAll(b.dataset.k, "case"));
+  document.querySelectorAll("#parts .fullrow").forEach(b => b.onclick = () => runFull(b.dataset.k, "case"));
+  document.querySelectorAll("#parts .n3row").forEach(b => b.onclick = () => runN3(b.dataset.n, "case"));
 }
 function partHTML(key, title, rows, mode, cur){
   const done = rows.filter(x => isDone(x.code)).length;
@@ -1255,16 +1286,27 @@ function drawPick(mode){
   show("s-pick");
   let h = "";
   if(mode === "case"){
-    $("pickTitle").textContent = "케이스별";
-    $("pickLede").textContent = "케이스를 눌러 블록을 고르세요. 숫자는 해 본 블록 / 전체 블록입니다.";
+    const sel = SELCASE && CASES.find(c => c.id === SELCASE);
+    if(sel) return drawCaseMenu(sel);
+    SELCASE = null;
+    $("pickTitle").textContent = "케이스 선택";
+    $("pickLede").textContent = "케이스를 고르면 블록 연습 · 한글 롤플레이 · 3분 노트 · 영어 롤플레이 · 스크립트 듣기를 고를 수 있어요. 숫자는 해 본 블록 / 전체 블록입니다.";
     const lastCase = LS.raw("chk.case") || "";
-    if(openPart.case == null){ const lc = CASES.find(c => c.id === lastCase) || null; if(lc) openPart.case = lc.id; }
     let grp = null;
+    h += '<div class="part open"><div class="list" style="border-top:0">';
     CASES.forEach(c => {
-      if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
-      const rows = SECS.filter(x => x.caseId === c.id);
-      h += partHTML(c.id, '<span style="color:var(--teal)">'+esc(c.cat ? c.cat + " " : "")+'</span>'+esc(c.code)+' · '+esc(shortTitle(c)), rows, "case", c.id === lastCase);
+      if(c._subj !== grp){ grp = c._subj; h += '</div></div><div class="subj">'+esc(subjName(grp))+'</div><div class="part open"><div class="list" style="border-top:0">'; }
+      const rows = SECS.filter(x => x.caseId === c.id), done = rows.filter(x => isDone(x.code)).length;
+      h += '<button class="row caserow" data-k="'+esc(c.id)+'"'+(c.id === lastCase ? ' style="background:var(--teal-soft, #E6F2F1)"' : "")+'>' +
+        '<span class="cd">'+esc(c.code)+'</span><span class="tt">'+(c.cat ? '<span style="color:var(--teal)">'+esc(c.cat)+'</span> ' : "")+esc(shortTitle(c)) +
+        '<div class="st">블록 '+done+' / '+rows.length+(c.id === lastCase ? ' · 최근에 한 케이스' : "")+'</div></span></button>';
     });
+    h += '</div></div>';
+    $("parts").innerHTML = h.replace('<div class="part open"><div class="list" style="border-top:0"></div></div>', "");
+    document.querySelectorAll("#parts .caserow").forEach(b => b.onclick = () => { SELCASE = b.dataset.k; LS.set("chk.case", SELCASE); drawCaseMenu(CASES.find(c => c.id === SELCASE)); window.scrollTo(0, 0); });
+    const cur = document.querySelector('#parts .caserow[data-k="'+(window.CSS && CSS.escape ? CSS.escape(lastCase) : lastCase)+'"]');
+    if(cur) setTimeout(() => cur.scrollIntoView({ block:"center" }), 0);
+    return;
   }else{
     $("pickTitle").textContent = "블록 종류별";
     $("pickLede").textContent = "같은 종류의 블록을 57케이스에서 모았습니다. 틀이 몸에 붙도록 같은 종류를 이어서 연습하세요.";
