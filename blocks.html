@@ -812,7 +812,7 @@ async function claudeCall(o){
     const j = parseJSONLoose(txt);
     if(j && (!o.check || o.check(j))) return j;
     lastErr = new Error("채점 결과를 읽지 못했습니다");
-    if(data.stop_reason === "max_tokens") maxTok = Math.min(4000, maxTok * 2);
+    if(data.stop_reason === "max_tokens") maxTok = Math.min(8000, maxTok * 2);
   }
   throw new Error((lastErr ? lastErr.message : "알 수 없는 오류") + (tries > 1 ? " (" + tries + "번 시도)" : ""));
 }
@@ -2200,7 +2200,7 @@ function runKr(caseId, from){
             : '환자가 대본의 환자 대사를 차례로 말합니다. 내가 뒤쪽 대사에 해당하는 질문을 먼저 하면 그 대사로 대답하고, 대본에 없는 질문에는 짧게 대답합니다.') +
           ' 한 차례 한국어로 말하고 <b>🎤 다 말했어요</b>를 누르면 환자가 한국어로 대답합니다(대답을 만드는 동안 시계 멈춤). 마무리 인사를 하면 저절로 끝나고, <b>■ 끝내기</b>로 언제든 끝낼 수 있습니다. 끝나면 Claude가 꼭 말할 것을 채점합니다.</p>' +
              (!vKo ? '<p class="note" style="color:var(--amber)">이 브라우저에 한국어 음성이 없어 환자 대답은 글로만 보일 수 있어요. PC의 Microsoft Edge를 권장합니다.</p>' : "") +
-             '<p class="note">말하기 인식: '+(AI.stt === "scribe" ? "ElevenLabs Scribe(한국어)" : "브라우저 인식(한국어)")+' · 환자 모델: '+esc(AI.rpModel)+' · 채점 모델: '+esc(AI.model)+' — 첫 화면 설정을 그대로 씁니다. 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
+             '<p class="note">말하기 인식: '+(AI.stt === "scribe" ? "ElevenLabs Scribe(한국어)" : "브라우저 인식(한국어)")+' · 환자 모델: '+esc(AI.rpModel)+' · 채점 모델: '+esc(AI.rpModel)+' — 첫 화면 설정을 그대로 씁니다. 목표 시간은 영어 대본 기준이라 참고만 하세요.</p>';
       }else{
         h += '<label>환자 대사</label><div class="seg" id="kTts">' +
         '<button data-v="1" class="'+(KOPT.tts?"on":"")+'">한국어로 읽어 주기<br><small>다 읽으면 내 차례로</small></button>' +
@@ -2379,18 +2379,31 @@ const KR_GRADE_SYS = [
   "Their words come from Korean speech recognition: ignore recognition errors, fillers, spacing and small grammar slips.",
   "You get a numbered checklist (Korean) of points the dentist must cover, in script order, the model dentist script in Korean, and the conversation.",
   "For each checklist point, decide if the candidate clearly covered it anywhere in the consultation. Different wording is fine. Be fair but not generous: a vague hint is not covered.",
-  "Reply with JSON only, no other text:",
-  "{\"hit\":[true,false,...],\"note\":\"한국어 세 문장 이내 — 잘한 점 하나, 고칠 점 하나, 흐름(순서) 한 마디\",\"miss\":\"가장 중요한 빠진 내용 한국어로 짧게, 없으면 빈 문자열\"}",
-  "hit must have exactly one boolean per checklist point, in order."
+  "Reply with JSON only, no other text. Inside text values never use double quotes; use single quotes instead.",
+  "{\"got\":[1,2,5],\"note\":\"한국어 세 문장 이내 — 잘한 점 하나, 고칠 점 하나, 흐름(순서) 한 마디\",\"miss\":\"가장 중요한 빠진 내용 한국어로 짧게, 없으면 빈 문자열\"}",
+  "got lists the NUMBERS of the checklist points the candidate covered (an empty list if none). Check every point from 1 to the last one."
 ].join("\n");
-async function gradeKr(c, checks, log){
-  const user = "Checklist:\n" + checks.map((x,i) => (i+1) + ". " + x).join("\n") +
+function krGradeUser(c, checks, log){
+  return "Checklist:\n" + checks.map((x,i) => (i+1) + ". " + x).join("\n") +
     "\n\nModel dentist script (Korean):\n" + krTurns(c).filter(t => t.who === "dr").map(koLine).join(" ") +
-    "\n\nConversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
+    "\n\nConversation (Candidate = dentist):\n" + convText(log, "Candidate") +
     "\n\nJudge only the candidate's lines.";
-  const j = await claudeCall({ system:KR_GRADE_SYS, messages:[{ role:"user", content:user }], maxTok:2500, ms:90000, json:true,
-                               check: j => j && Array.isArray(j.hit) });
-  return { hit: checks.map((_,i) => !!(j.hit && j.hit[i])), note: j.note || "", miss: j.miss || "" };
+}
+function krCopyPrompt(c, checks, log, sec){
+  return "[ADC Part 2 OSCE 한국어 롤플레이 채점 요청] " + c.code + " " + shortTitle(c) + " · 걸린 시간 " + mmssT(sec) + "\n\n" +
+    "아래는 한국인 치과의사가 영어 ADC OSCE 시험 전에 흐름을 익히려고 10분 상담을 한국어로 연습한 기록입니다. 후보자의 말은 음성 인식 결과라서 인식 오류 · 군말 · 띄어쓰기는 무시해 주세요.\n" +
+    "한국어로 답해 주세요:\n" +
+    "1) 체크리스트 항목마다 번호 · 말함/빠짐 · 근거가 된 후보자 말(짧게). 표현이 달라도 뜻이 맞으면 말함, 막연한 암시는 빠짐.\n" +
+    "2) 잘한 점 · 고칠 점 3개 · 흐름(순서)에 대한 한 마디\n" +
+    "3) 가장 중요한 빠진 내용\n\n" +
+    krGradeUser(c, checks, log);
+}
+async function gradeKr(c, checks, log){
+  // 채점은 롤플레이 페이지(index.html)에서 고른 모델로 — 빠른 모델(Haiku)은 10분 한국어 대화 전체를 맞춰 보기에 약하다
+  const j = await claudeCall({ model:AI.rpModel, system:KR_GRADE_SYS, messages:[{ role:"user", content:krGradeUser(c, checks, log) }],
+                               maxTok:3000, ms:150000, json:true,
+                               check: j => j && (Array.isArray(j.got) || Array.isArray(j.hit)) });
+  return { hit: gotToHit(j, checks.length), note: j.note || "", miss: j.miss || "" };
 }
 
 function runKrAI(caseId){
@@ -2493,37 +2506,55 @@ function runKrAI(caseId){
     saveST();
     openRun(c.code + " · 한글 롤플레이 결과", shortTitle(c));
     R.W = W;
-    dock([{ label:"채점 중…", off:true, go:() => {} }]);
-    $("runBody").innerHTML = '<div class="score">'+mmss(W.sec)+'</div><div class="heard"><div class="lb">Claude가 꼭 말할 것 '+checks.length+'개를 확인하는 중…</div></div>';
-    let G = null;
-    if(!W.log.some(x => x.who === "dr")) G = { hit: checks.map(() => false), note:"말한 내용이 없어요.", miss:"" };
-    else{ try{ G = await gradeKr(c, checks, W.log); } catch(e){ G = { err:e.message }; } }
-    const hitN = G.hit ? G.hit.filter(Boolean).length : 0;
-    if(G.hit){ rec.cov = hitN / checks.length; saveST(); }
-    W.state = "done";
-    if(R.W !== W) return;                 // 그사이 다른 화면으로 갔다 — 기록만 남긴다
-    const [jc, jt] = judgeTime(W.sec, tgt), dev = Math.round((W.sec - tgt) / tgt * 100);
-    const past = list.slice(-6, -1);
-    let h = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(W.sec)+'</div>' +
-      '<div class="tgt">목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%'+(G.hit ? ' · 꼭 말할 것 <b>'+hitN+' / '+checks.length+'</b>' : "")+'</div></div></div>' +
-      '<div class="judge '+jc+'">'+jt+'</div>' +
-      (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s) + (x.cov != null ? " (" + Math.round(x.cov*100) + "%)" : "")).join(" · ")+'</div>' : "") +
-      '<p class="note">한국어는 영어와 말 속도가 달라 시간은 참고용입니다.</p>';
-    if(G.err) h += '<div class="heard"><div class="er">채점 실패: '+esc(G.err)+'</div></div>';
-    else{
-      h += '<div class="heard"><div class="lb">Claude 평가 · 꼭 말할 것 '+hitN+' / '+checks.length+'</div><div class="fb">'+esc(G.note)+'</div>'+(G.miss ? '<div class="fb"><b>빠진 것:</b> '+esc(G.miss)+'</div>' : "")+'</div>' +
-        checks.map((x, k) => '<div class="chk'+(G.hit[k] ? " on" : "")+'"><span class="bx"></span><span>'+esc(x)+'</span><span class="ai '+(G.hit[k]?"o":"x")+'">'+(G.hit[k]?"말함":"빠짐")+'</span></div>').join("");
-    }
-    h += '<details style="margin-top:10px"><summary class="linkbtn">오늘 대화 ('+W.log.length+'줄)</summary>' +
-      (W.log.length ? W.log.map(x => '<div class="turn '+x.who+'"><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div><div class="en">'+esc(x.en)+'</div></div>').join("") : '<p class="note">대화 기록이 없습니다.</p>') +
-      '</details><details><summary class="linkbtn">한국어 모범 대본</summary>' + krScriptHTML(c) + '</details>';
-    $("runBody").innerHTML = h;
-    bar(1);
+    const copyTexts = { conv: () => "[한국어 롤플레이 대화] " + c.code + " " + shortTitle(c) + " · " + mmssT(W.sec) + "\n\n" + convText(W.log),
+                        prompt: () => krCopyPrompt(c, checks, W.log, W.sec) };
+    const said = W.log.some(x => x.who === "dr");
     const first = SECS.find(x => x.caseId === c.id && x.idx === 0);
     const back = () => R.krFrom === "case" ? drawPick("case") : drawKr();
-    const btns = [{ label:"목록으로", cls:"sec", go:back }, { label:"다시", cls:"sec", go:() => runKrAI(c.id) }];
-    if(first) btns.push({ label:"영어로 하기 ›", go:() => { FROM = "case"; openSec(first.code); } });
-    dock(btns);
+    const showGrading = msg => {
+      dock([{ label:"채점 중…", off:true, go:() => {} }]);
+      $("runBody").innerHTML = '<div class="score">'+mmss(W.sec)+'</div><div class="heard"><div class="lb">'+msg+'</div>' +
+        '<p class="note" style="margin:6px 0 0">채점 모델: '+esc(AI.rpModel)+' · 1분 넘게 걸리면 아래 버튼으로 복사해 다른 곳에서 채점해도 돼요.</p></div>' +
+        copyBoxHTML() + convHTML(W.log, false);
+      wireCopy(copyTexts);
+    };
+    const grade = async () => {
+      let G;
+      if(!said) G = { hit: checks.map(() => false), note:"말한 내용이 없어요.", miss:"" };
+      else{ try{ G = await gradeKr(c, checks, W.log); } catch(e){ G = { err:e.message }; } }
+      if(G.hit){ rec.cov = G.hit.filter(Boolean).length / checks.length; saveST(); }
+      return G;
+    };
+    const showResult = G => {
+      const hitN = G.hit ? G.hit.filter(Boolean).length : 0;
+      const [jc, jt] = judgeTime(W.sec, tgt), dev = Math.round((W.sec - tgt) / tgt * 100);
+      const past = list.slice(-6, -1);
+      let h = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(W.sec)+'</div>' +
+        '<div class="tgt">목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%'+(G.hit ? ' · 꼭 말할 것 <b>'+hitN+' / '+checks.length+'</b>' : "")+'</div></div></div>' +
+        '<div class="judge '+jc+'">'+jt+'</div>' +
+        (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s) + (x.cov != null ? " (" + Math.round(x.cov*100) + "%)" : "")).join(" · ")+'</div>' : "") +
+        '<p class="note">한국어는 영어와 말 속도가 달라 시간은 참고용입니다.</p>';
+      if(G.err) h += '<div class="heard"><div class="er">채점 실패: '+esc(G.err)+'</div><p class="note" style="margin:6px 0 0">아래 <b>다시 채점</b>을 누르거나, <b>채점 요청 복사</b>로 다른 AI에 붙여넣어 채점하세요.</p></div>';
+      h += copyBoxHTML();
+      if(!G.err){
+        h += '<div class="heard"><div class="lb">Claude 평가 · 꼭 말할 것 '+hitN+' / '+checks.length+'</div><div class="fb">'+esc(G.note)+'</div>'+(G.miss ? '<div class="fb"><b>빠진 것:</b> '+esc(G.miss)+'</div>' : "")+'</div>' +
+          checks.map((x, k) => '<div class="chk'+(G.hit[k] ? " on" : "")+'"><span class="bx"></span><span>'+esc(x)+'</span><span class="ai '+(G.hit[k]?"o":"x")+'">'+(G.hit[k]?"말함":"빠짐")+'</span></div>').join("");
+      }
+      h += convHTML(W.log, true) + '<details><summary class="linkbtn">한국어 모범 대본</summary>' + krScriptHTML(c) + '</details>';
+      $("runBody").innerHTML = h;
+      wireCopy(copyTexts);
+      bar(1);
+      const btns = [{ label:"목록으로", cls:"sec", go:back }, { label:"다시", cls:"sec", go:() => runKrAI(c.id) }];
+      if(G.err && said) btns.splice(1, 0, { label:"다시 채점", cls:"sec", go:async () => {
+        showGrading("다시 채점하는 중…"); const G2 = await grade(); if(R.W === W) showResult(G2); } });
+      if(first) btns.push({ label:"영어로 하기 ›", go:() => { FROM = "case"; openSec(first.code); } });
+      dock(btns);
+    };
+    showGrading('Claude가 꼭 말할 것 '+checks.length+'개를 확인하는 중…');
+    const G = await grade();
+    W.state = "done";
+    if(R.W !== W) return;                 // 그사이 다른 화면으로 갔다 — 기록만 남긴다
+    showResult(G);
   };
 
   W.timer = setInterval(() => { W.sec = now(); krTick(W.sec, tgt); }, 250);
@@ -2626,22 +2657,38 @@ const FULL_GRADE_SYS = [
   "2) Score 5 domains from 1 to 5 (3 = borderline): [1] opening, structure, signposting and closing; [2] information gathering (history, ideas, concerns, expectations); [3] explanation in clear lay language and checking understanding; [4] management and consent (options, risks, a clear recommendation, referral, consent); [5] patient-centred care (empathy, handling concerns and pushback, shared decision).",
   "3) Overall verdict PASS, BORDERLINE or FAIL by ADC standards. A missing critical safety point, a wrong or unsafe plan, or no clear recommendation when one is needed means FAIL.",
   "Write Korean for good, fix, critical and time. Keep English suggestions simple: 12 words or fewer per sentence, no relative clauses (which/that/who), no dashes, B1 vocabulary.",
-  "Reply with JSON only, no other text:",
-  "{\"hit\":[true,false,...],\"dom\":[3,3,3,3,3],\"verdict\":\"PASS|BORDERLINE|FAIL\",\"good\":\"잘한 점 한국어 두 문장 이내\",\"fix\":[\"가장 중요한 고칠 점 (한국어, 최대 3개)\"],\"critical\":\"치명적 누락이나 위험한 말 (한국어, 없으면 빈 문자열)\",\"better\":[{\"said\":\"candidate's line, short\",\"try\":\"better simple English\"}],\"time\":\"시간 배분 한 마디 (한국어)\"}",
-  "hit must have exactly one boolean per checklist point, in order. dom has exactly 5 integers. better has at most 3 items."
+  "Reply with JSON only, no other text. Inside text values never use double quotes; use single quotes instead.",
+  "{\"got\":[1,2,5],\"dom\":[3,3,3,3,3],\"verdict\":\"PASS|BORDERLINE|FAIL\",\"good\":\"잘한 점 한국어 두 문장 이내\",\"fix\":[\"가장 중요한 고칠 점 (한국어, 최대 3개)\"],\"critical\":\"치명적 누락이나 위험한 말 (한국어, 없으면 빈 문자열)\",\"better\":[{\"said\":\"candidate's line, short\",\"try\":\"better simple English\"}],\"time\":\"시간 배분 한 마디 (한국어)\"}",
+  "got lists the NUMBERS of the checklist points the candidate covered (an empty list if none); check every point from 1 to the last one. dom has exactly 5 integers. better has at most 3 items."
 ].join("\n");
-async function gradeFull(c, checks, log, sec){
+function fullGradeUser(c, checks, log, sec){
   const cue = c.cueCard || {};
-  const user = "Cue card: " + (cue.setting || shortTitle(c)) + (cue.tasks && cue.tasks.length ? "\nTask: " + cue.tasks.join(" ") : "") +
+  return "Cue card: " + (cue.setting || shortTitle(c)) + (cue.tasks && cue.tasks.length ? "\nTask: " + cue.tasks.join(" ") : "") +
     "\n\nChecklist:\n" + checks.map((x,i) => (i+1) + ". " + (x.must ? "MUST: " : "") + x.t + "  (block " + (x.b+1) + ": " + untag(c.blocks[x.b].name || "") + ")").join("\n") +
     "\n\nModel consultation:\n" + krTurns(c).map(t => (t.who === "dr" ? "Dentist: " : "Patient: ") + untag(t.en)).join("\n") +
     "\n\nTime used: " + mmssT(sec) + " (limit 10:00)." +
-    "\n\nConversation (Candidate = dentist):\n" + log.map(x => (x.who === "dr" ? "Candidate: " : "Patient: ") + x.en).join("\n") +
+    "\n\nConversation (Candidate = dentist):\n" + convText(log, "Candidate") +
     "\n\nJudge only the candidate's lines.";
-  const j = await claudeCall({ model:AI.rpModel, system:FULL_GRADE_SYS, messages:[{ role:"user", content:user }], maxTok:3000, ms:120000, json:true,
-                               check: j => j && Array.isArray(j.hit) && Array.isArray(j.dom) });
+}
+function fullCopyPrompt(c, checks, log, sec){
+  return "[ADC Part 2 OSCE 영어 롤플레이 채점 요청] " + c.code + " " + shortTitle(c) + "\n\n" +
+    "You are an ADC Part 2 OSCE examiner (Australian Dental Council, communication station). Grade this 10-minute consultation that a Korean dentist practised in English with a simulated patient. " +
+    "The candidate's words come from speech recognition: ignore recognition errors, fillers and small grammar slips. Judge meaning, clinical safety and communication. " +
+    "The model consultation is only one example, not the required wording or order.\n" +
+    "한국어로 답해 주세요:\n" +
+    "1) 체크리스트 항목마다 번호 · 함/빠짐 · 근거가 된 후보자 말(짧게). 표현이 달라도 뜻이 맞으면 함, 막연한 암시는 빠짐. MUST 항목은 따로 표시.\n" +
+    "2) 5개 영역 점수 1–5 (3 = 경계): 시작·구조·마무리 / 정보 수집(병력·ICE) / 설명(쉬운 말·이해 확인) / 관리·동의(옵션·위험·추천·의뢰) / 환자 중심(공감·걱정·반박 대응)\n" +
+    "3) 종합 판정 PASS / BORDERLINE / FAIL과 이유 (치명적 안전 누락, 잘못된 계획, 필요한 추천이 없으면 FAIL)\n" +
+    "4) 잘한 점 · 고칠 점 3개 · 시간 배분\n" +
+    "5) 더 나은 영어 문장 5개: 내 말 → 고친 문장 (12단어 이하, 쉬운 영어)\n\n" +
+    fullGradeUser(c, checks, log, sec);
+}
+async function gradeFull(c, checks, log, sec){
+  const j = await claudeCall({ model:AI.rpModel, system:FULL_GRADE_SYS, messages:[{ role:"user", content:fullGradeUser(c, checks, log, sec) }],
+                               maxTok:4000, ms:180000, json:true,
+                               check: j => j && (Array.isArray(j.got) || Array.isArray(j.hit)) && Array.isArray(j.dom) });
   const dom = FULL_DOM.map((_, i) => Math.max(1, Math.min(5, Math.round(+j.dom[i] || 1))));
-  return { hit: checks.map((_,i) => !!(j.hit && j.hit[i])), dom: dom, sc: Math.round(dom.reduce((a,b) => a + b, 0) / 25 * 100),
+  return { hit: gotToHit(j, checks.length), dom: dom, sc: Math.round(dom.reduce((a,b) => a + b, 0) / 25 * 100),
            verdict: VERD[String(j.verdict || "").toUpperCase()] ? String(j.verdict).toUpperCase() : "BORDERLINE",
            good: j.good || "", fix: Array.isArray(j.fix) ? j.fix.slice(0, 3) : (j.fix ? [String(j.fix)] : []),
            critical: j.critical || "", better: Array.isArray(j.better) ? j.better.slice(0, 3) : [], time: j.time || "" };
@@ -2653,8 +2700,11 @@ function fullResultHTML(c, checks, G, log, sec, list){
     '<div class="tgt">시험 시간 <b>10:00</b>'+(G && G.hit ? '<br>꼭 말할 것 <b>'+G.hit.filter(Boolean).length+' / '+checks.length+'</b>' : "")+'</div></div></div>' +
     '<div class="judge '+jc+'">'+jt+'</div>' +
     (past.length ? '<div class="hist">지난 기록: '+past.map(x => mmss(x.s) + (x.sc != null ? " (" + x.sc + "점" + (x.v ? " " + x.v : "") + ")" : "")).join(" · ")+'</div>' : "");
-  if(!G) return h;
-  if(G.err) return h + '<div class="heard"><div class="er">채점 실패: '+esc(G.err)+'</div></div>';
+  const tail = convHTML(log, true) + '<details><summary class="linkbtn">모범 대본 (영어 + 한국어)</summary>' +
+    krTurns(c).map(t => '<div class="turn '+t.who+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+mustTag({ must:t.ms })+'</div><div class="en">'+esc(untag(t.en))+'</div>'+(t.ko ? '<div class="ko">'+esc(t.ko)+'</div>' : "")+'</div>').join("") + '</details>';
+  if(!G) return h + copyBoxHTML() + tail;
+  if(G.err) return h + '<div class="heard"><div class="er">채점 실패: '+esc(G.err)+'</div><p class="note" style="margin:6px 0 0">아래 <b>다시 채점</b>을 누르거나, <b>채점 요청 복사</b>로 다른 AI에 붙여넣어 채점하세요.</p></div>' + copyBoxHTML() + tail;
+  h += copyBoxHTML();
   const v = VERD[G.verdict];
   h += '<div class="judge '+v[0]+'" style="font-size:20px">'+v[1]+' · '+G.sc+'점</div>';
   h += '<div class="heard"><div class="lb">영역 점수 (1–5, 3 = 경계)</div>' + FULL_DOM.map((d, i) =>
@@ -2672,10 +2722,7 @@ function fullResultHTML(c, checks, G, log, sec, list){
     if(x.b !== lastB){ lastB = x.b; s += '<div class="subj" style="margin-top:10px">'+(x.b+1)+'. '+esc(untag(c.blocks[x.b].name || ""))+'</div>'; }
     return s + '<div class="chk'+(G.hit[k] ? " on" : "")+'"><span class="bx"></span><span>'+(x.must ? '<b>꼭:</b> ' : "")+esc(x.t)+'</span><span class="ai '+(G.hit[k]?"o":"x")+'">'+(G.hit[k]?"함":"빠짐")+'</span></div>';
   }).join("");
-  h += '<details style="margin-top:10px"><summary class="linkbtn">오늘 대화 ('+log.length+'줄)</summary>' +
-    (log.length ? log.map(x => '<div class="turn '+x.who+'"><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div><div class="en">'+esc(x.en)+'</div></div>').join("") : '<p class="note">대화 기록이 없습니다.</p>') +
-    '</details><details><summary class="linkbtn">모범 대본 (영어 + 한국어)</summary>' +
-    krTurns(c).map(t => '<div class="turn '+t.who+'"><div class="who">'+(t.who==="dr"?"Dentist":"Patient")+mustTag({ must:t.ms })+'</div><div class="en">'+esc(untag(t.en))+'</div>'+(t.ko ? '<div class="ko">'+esc(t.ko)+'</div>' : "")+'</div>').join("") + '</details>';
+  h += tail;
   return h;
 }
 function runFull(caseId, from){
@@ -2802,24 +2849,37 @@ function runFull(caseId, from){
     saveST();
     openRun(c.code + " · 전체 롤플레이 결과", shortTitle(c));
     R.W = W;
-    dock([{ label:"채점 중…", off:true, go:() => {} }]);
-    $("runBody").innerHTML = '<div class="score">'+mmss(W.sec)+'</div><div class="heard"><div class="lb">Claude 시험관이 10분 전체를 채점하는 중… (30초쯤 걸려요)</div></div>';
-    let G;
-    if(!W.log.some(x => x.who === "dr")) G = { err:"말한 내용이 없어요." };
-    else{ try{ G = await gradeFull(c, checks, W.log, W.sec); } catch(e){ G = { err:e.message }; } }
-    if(G && G.hit){ rec.cov = G.hit.filter(Boolean).length / checks.length; rec.sc = G.sc; rec.v = G.verdict; saveST(); }
+    const copyTexts = { conv: () => "[영어 롤플레이 대화] " + c.code + " " + shortTitle(c) + " · " + mmssT(W.sec) + "\n\n" + convText(W.log),
+                        prompt: () => fullCopyPrompt(c, checks, W.log, W.sec) };
+    const said = W.log.some(x => x.who === "dr");
+    const showGrading = msg => {
+      dock([{ label:"채점 중…", off:true, go:() => {} }]);
+      $("runBody").innerHTML = '<div class="score">'+mmss(W.sec)+'</div><div class="heard"><div class="lb">'+msg+'</div>' +
+        '<p class="note" style="margin:6px 0 0">채점 모델: '+esc(AI.rpModel)+' · 1분 넘게 걸리면 아래 버튼으로 복사해 다른 곳에서 채점해도 돼요.</p></div>' +
+        copyBoxHTML() + convHTML(W.log, false);
+      wireCopy(copyTexts);
+    };
+    const grade = async () => {
+      let G;
+      if(!said) G = { err:"말한 내용이 없어요." };
+      else{ try{ G = await gradeFull(c, checks, W.log, W.sec); } catch(e){ G = { err:e.message }; } }
+      if(G && G.hit){ rec.cov = G.hit.filter(Boolean).length / checks.length; rec.sc = G.sc; rec.v = G.verdict; saveST(); }
+      return G;
+    };
+    const showResult = G => {
+      $("runBody").innerHTML = fullResultHTML(c, checks, G, W.log, W.sec, list);
+      wireCopy(copyTexts);
+      bar(1);
+      const btns = [{ label:"목록으로", cls:"sec", go:back }, { label:"다시", go:() => runFull(c.id, R.fullFrom) }];
+      if(G && G.err && said) btns.splice(1, 0, { label:"다시 채점", cls:"sec", go:async () => {
+        showGrading("다시 채점하는 중…"); const G2 = await grade(); if(R.W === W) showResult(G2); } });
+      dock(btns);
+    };
+    showGrading("Claude 시험관이 10분 전체를 채점하는 중… (30초–1분쯤 걸려요)");
+    const G = await grade();
     W.state = "done";
     if(R.W !== W) return;                 // 그사이 다른 화면으로 갔다 — 기록만 남긴다
-    $("runBody").innerHTML = fullResultHTML(c, checks, G, W.log, W.sec, list);
-    bar(1);
-    const btns = [{ label:"목록으로", cls:"sec", go:back }, { label:"다시", go:() => runFull(c.id, R.fullFrom) }];
-    if(G && G.err && W.log.some(x => x.who === "dr")) btns.splice(1, 0, { label:"다시 채점", cls:"sec", go:async () => {
-      $("runBody").innerHTML = '<div class="heard"><div class="lb">다시 채점하는 중…</div></div>';
-      let G2; try{ G2 = await gradeFull(c, checks, W.log, W.sec); } catch(e){ G2 = { err:e.message }; }
-      if(G2.hit){ rec.cov = G2.hit.filter(Boolean).length / checks.length; rec.sc = G2.sc; rec.v = G2.verdict; saveST(); }
-      $("runBody").innerHTML = fullResultHTML(c, checks, G2, W.log, W.sec, list);
-    } });
-    dock(btns);
+    showResult(G);
   };
   const start = async () => {
     if(!fullAIok()) return;
@@ -3153,6 +3213,36 @@ async function copyText(t){
     ta.style.position = "fixed"; ta.style.top = "-1000px"; document.body.appendChild(ta); ta.select();
     const ok = document.execCommand("copy"); ta.remove(); return ok;
   }catch(e){ return false; }
+}
+/* 롤플레이 결과 · 채점 중 화면의 복사 버튼 — 채점이 안 되면 다른 AI(claude.ai 등)에 붙여넣어 채점하게 */
+function copyBoxHTML(){
+  return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0">' +
+    '<button class="linkbtn" data-copy="prompt">📋 채점 요청 복사 (다른 AI에 붙여넣기)</button>' +
+    '<button class="linkbtn" data-copy="conv">📋 대화만 복사</button></div>';
+}
+function wireCopy(texts){
+  document.querySelectorAll("#runBody [data-copy]").forEach(b => b.onclick = async () => {
+    const lb = b.dataset.lb || (b.dataset.lb = b.textContent);
+    const ok = await copyText(texts[b.dataset.copy]());
+    b.textContent = ok ? "✓ 복사됐어요 — 붙여넣기 하세요" : "복사 실패 — 아래 대화를 직접 선택해 복사하세요";
+    setTimeout(() => { b.textContent = lb; }, 2500);
+  });
+}
+function convText(log, me){
+  return log.map(x => (x.who === "dr" ? (me || "Dentist") + ": " : "Patient: ") + x.en).join("\n");
+}
+function convHTML(log, open){
+  return '<details'+(open ? " open" : "")+' style="margin-top:10px"><summary class="linkbtn">오늘 대화 전체 ('+log.length+'줄)</summary>' +
+    (log.length ? log.map(x => '<div class="turn '+x.who+'"><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div><div class="en">'+esc(x.en)+'</div></div>').join("") : '<p class="note">대화 기록이 없습니다.</p>') +
+    '</details>';
+}
+/* 채점 결과 "got"(말한 항목 번호 목록)을 체크리스트 길이의 true/false로 — 예전 "hit"(true/false 목록)도 받는다 */
+function gotToHit(j, n){
+  if(j && Array.isArray(j.got)){
+    const set = new Set(j.got.map(x => parseInt(x, 10)).filter(x => x >= 1 && x <= n));
+    return Array.from({ length:n }, (_, i) => set.has(i + 1));
+  }
+  return Array.from({ length:n }, (_, i) => !!(j && Array.isArray(j.hit) && j.hit[i] === true));
 }
 
 /* 기록 */
