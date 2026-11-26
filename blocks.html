@@ -68,6 +68,27 @@
   table.kt td,table.kt th{border:1px solid var(--rule);padding:6px 8px;text-align:left}
   table.kt td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   table.kt td.over{color:var(--red);font-weight:600} table.kt td.under{color:var(--amber)}
+  /* 시간분배표 — 과목별 PDF와 같은 모양: 단계(묶음) · 세부 블록 · 남은 시간 · 칸 · 할 일 · 핵심 대사 */
+  .ptw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:8px 0 4px;border:1px solid var(--rule);background:var(--card);
+       width:min(960px, calc(100vw - 24px));position:relative;left:50%;transform:translateX(-50%)}   /* PC에서는 본문보다 넓게 펼쳐 표 전체가 보이게 */
+  table.pt{border-collapse:collapse;font-size:12.5px;line-height:1.4;min-width:700px;width:100%}
+  table.pt th{background:var(--ink);color:#fff;font-weight:600;padding:6px 7px;text-align:left;white-space:nowrap}
+  table.pt td{border:1px solid var(--rule);padding:6px 7px;vertical-align:top;background:var(--card)}
+  table.pt tr.g1 td{background:#F6F8F8}
+  table.pt td.st{position:sticky;left:0;z-index:1;width:112px;min-width:112px;background:#E8F0EE;border-right:2px solid var(--teal)}
+  table.pt tr.g1 td.st{background:#DCE8E5}
+  table.pt td.st b{display:block;color:var(--teal);font-size:13px;line-height:1.35}
+  table.pt td.st .sr{display:block;margin-top:3px;color:var(--ink-soft);font-size:11.5px;font-variant-numeric:tabular-nums}
+  table.pt tr.first td{border-top:2px solid var(--teal)}
+  table.pt td.sb{font-weight:600}
+  table.pt td.tm,table.pt td.kn{white-space:nowrap;font-variant-numeric:tabular-nums}
+  table.pt td.kn{text-align:center}
+  table.pt .ab{display:block;color:#B5452B;font-size:11.5px;margin-top:3px}
+  table.pt td.an{font-style:italic;color:var(--ink-soft)}
+  table.pt td.none{color:var(--ink-soft);font-style:italic}
+  table.pt .star{color:var(--amber)}
+  table.pt tr.go{cursor:pointer}
+  table.pt tr.now td:not(.st){background:#D9EEE2}
   .ent.cont{border-top-color:var(--rule);padding:12px 14px}
   .ent .t{font-weight:700;font-size:16.5px}
   .ent .d{font-size:13px;color:var(--ink-soft);margin-top:4px;line-height:1.4}
@@ -2032,6 +2053,76 @@ function runDeck(items, title, onBack){
   draw();
 }
 
+/* ── 시간분배표 (과목별 PDF 모양) ──
+   데이터: 3분 노트 카드(N3)의 Nazia 표 — 블록마다 stage(단계) · stime(단계 전체 구간) · start/end(남은 시간) · dur(칸) · todo · kw(빨간 약어) · line.
+   같은 단계의 블록을 묶어 단계 칸을 세로로 합친다. Divya 표(B)는 접어서 참고로. */
+const ptSec = t => { const m = String(t || "").match(/(\d+):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : NaN; };
+function ptStageInfo(b){            // 단계 이름 · 구간 · 길이
+  let name = String(b.stage || ""), range = "", dur = "";
+  const e = name.match(/^(.*?)\s*—\s*\((\d+:\d{2})\)\s*$/);           // 빈 단계: "② 소견 · 진단 (짧게) — (0:00)"
+  if(e){ name = e[1]; range = "—"; dur = e[2]; }
+  const s = String(b.stime || "").match(/^(.*?)\s*\((\d+:\d{2})\)\s*$/);
+  if(s){ range = s[1]; dur = s[2]; } else if(b.stime) range = b.stime;
+  return { name, range, dur };
+}
+function planHTML(n, o){            // o.cur = 지금 블록(N3 번호) · o.click = 줄 누르기 · o.divya = Divya 표 붙이기(기본 true)
+  o = o || {};
+  const B = n.blocks || [];
+  const groups = [];
+  B.forEach((b, i) => { const g = groups[groups.length - 1]; if(g && g.stage === b.stage) g.items.push(i); else groups.push({ stage: b.stage, items: [i] }); });
+  let rows = "";
+  groups.forEach((g, gi) => {
+    const si = ptStageInfo(B[g.items[0]]);
+    g.items.forEach((i, k) => {
+      const b = B[i];
+      rows += '<tr class="g'+(gi % 2)+(k === 0 ? " first" : "")+(o.click && !b.empty ? " go" : "")+(i === o.cur ? " now" : "")+'" data-n="'+i+'">';
+      if(k === 0) rows += '<td class="st" rowspan="'+g.items.length+'"><b>'+esc(si.name)+'</b>'+(si.range || si.dur ? '<span class="sr">'+esc(si.range)+(si.dur ? ' ('+esc(si.dur)+')' : "")+'</span>' : "")+'</td>';
+      if(b.empty) rows += '<td colspan="5" class="none">'+esc(b.label || "세부 블록 없음")+'</td>';
+      else rows += '<td class="sb">'+(b.star ? '<span class="star">★</span> ' : "")+esc(b.label)+'</td>' +
+        '<td class="tm">'+esc(b.start)+(b.end ? ' → '+esc(b.end) : "")+'</td>' +
+        '<td class="kn">'+esc(b.dur)+'</td>' +
+        '<td>'+esc(b.todo)+((b.kw || []).length ? '<span class="ab">'+(b.kw || []).map(esc).join(" · ")+'</span>' : "")+'</td>' +
+        '<td class="an">'+(b.line ? '“'+esc(b.line)+'”' : "")+'</td>';
+      rows += '</tr>';
+    });
+  });
+  let h = '<p class="note" style="margin:10px 0 0"><b>시간분배표 — A. Nazia'+(n.cluster ? ' · '+esc(n.cluster) : "")+'</b>'+(n.memo || []).map(m => '<br>'+esc(m)).join("")+'</p>' +
+    '<div class="ptw"><table class="pt"><thead><tr><th>단계</th><th>세부 블록</th><th>남은 시간</th><th>칸</th><th>할 일</th><th>핵심 대사</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  if(o.divya !== false && n.divya && n.divya.length) h += '<details style="margin-top:8px"><summary class="linkbtn">B. Divya 시간분배표 (참고)</summary>' +
+    n.divya.map(t => (t.head ? '<p class="note" style="margin:8px 0 0"><b>'+esc(t.head)+'</b></p>' : "") +
+      '<div class="ptw"><table class="pt" style="min-width:600px"><thead><tr><th>구간</th><th>남은 시간</th><th>칸</th><th>목표</th><th>핵심 대사</th></tr></thead><tbody>' +
+      t.rows.map((r, i) => '<tr class="g'+(i % 2)+'"><td class="sb">'+esc(r.label)+'</td><td class="tm">'+esc(r.rem)+'</td><td class="kn">'+esc(r.dur)+'</td>' +
+        '<td>'+esc(r.todo)+(r.red ? '<span class="ab">'+esc(r.red)+'</span>' : "")+'</td><td class="an">'+(r.line ? '“'+esc(r.line)+'”' : "")+'</td></tr>').join("") +
+      '</tbody></table></div>').join("") + '</details>';
+  return h;
+}
+function planMap(c, n){             // 대본 블록 i → 시간이 겹치는 Nazia 블록 번호 (블록 가운데 시점 기준)
+  const tot = c.blocks.reduce((a, b) => a + (b.sec || 60), 0) || 600;
+  let acc = 0;
+  return c.blocks.map(b => {
+    const s = acc; acc += (b.sec || 60);
+    return planAt(n, 600 - (s + acc) / 2 * 600 / tot);
+  });
+}
+function planAt(n, rem){            // 남은 시간(초) → 그 시점의 Nazia 블록 번호
+  let best = -1, bd = 1e9;
+  (n.blocks || []).forEach((x, j) => {
+    if(x.empty) return;
+    const a = ptSec(x.start), z = ptSec(x.end); if(isNaN(a) || isNaN(z)) return;
+    const d = rem <= a && rem >= z ? 0 : Math.min(Math.abs(rem - a), Math.abs(rem - z));
+    if(d < bd){ bd = d; best = j; }
+  });
+  return best;
+}
+const PTOPT = { get on(){ return LS.get("blk.pthint", false); }, set on(v){ LS.set("blk.pthint", v); } };   // 한글 롤플레이 중 시간분배표 펼침
+function planToggle(n, id, rem){    // 롤플레이 화면용: 버튼 + (펼쳤으면) 지금 시간 줄을 칠한 표
+  if(!n) return "";
+  return '<button class="linkbtn" id="'+id+'" style="margin-left:0">'+(PTOPT.on ? "▾ 시간분배표 숨기기" : "▸ 시간분배표 보기")+'</button>' +
+    (PTOPT.on ? planHTML(n, { cur: planAt(n, rem), divya: false }) : "");
+}
+const planPeek = n => n ? '<details style="margin:10px 0 4px"><summary class="linkbtn">시간분배표 미리 보기 (단계 '+planCount(n).st+' · 블록 '+planCount(n).bl+')</summary>' + planHTML(n, {}) + '</details>' : "";
+const planCount = n => { const B = (n.blocks || []); return { st: new Set(B.map(b => b.stage)).size, bl: B.filter(b => !b.empty).length }; };
+
 /* ── 스크립트 전체 듣기 (10분, 블록 구분 · 시간 분배 · 키워드) ──
    키워드: 3분 노트 카드(N3)의 블록 키워드를 쓴다 (블록 수가 같을 때). 없으면 '할 일'을 · 로 나눠서.
    기록: ST.all[caseId] = [ts…] (최근 10개) */
@@ -2087,8 +2178,11 @@ function runAll(caseId, from){
       ? '▶ <b>' + esc(bname(b, cur)) + '</b> · 계획 ' + esc(b.start || "") + ' → ' + esc(b.end || "") + ' · 들은 시간 <b id="aEl">' + mmss(elapsed()) + '</b>'
       : (A.i > 0 ? '⏸ 멈춤 · 들은 시간 ' + mmss(elapsed()) + ' / 계획 ' + mmss(tgt) : '전체 ' + c.blocks.length + '블록 · 계획 ' + mmss(tgt) + ' · 대사 ' + T.length + '줄')) + '</div>';
   };
+  const NZ = n3OfCase(c), NM = NZ ? planMap(c, NZ) : null;      // 과목별 PDF 시간분배표 (단계 → 블록)
   const plan = () => {
     const cur = A.playing && T[A.i] ? T[A.i].b : -1;
+    if(NZ) return planHTML(NZ, { cur: cur >= 0 ? NM[cur] : -1, click: true }) +
+      '<p class="note" style="margin-top:2px">과목별 PDF와 같은 표 (Nazia) · 줄을 누르면 그 블록부터 듣습니다. 대본 블록의 시간은 표와 조금 다를 수 있어요.</p>';
     return '<table class="kt" style="margin:10px 0 4px"><tr><th>블록</th><th>시간</th><th>키워드</th></tr>' +
       c.blocks.map((b, i) => '<tr class="go'+(i === cur ? " now" : "")+'" data-b="'+i+'"><td>'+esc(bname(b, i))+'</td>' +
         '<td class="n">'+esc(b.start || "")+'–'+esc(b.end || "")+'<br><span style="color:var(--ink-soft)">'+mmssT(b.sec || 60)+'</span></td>' +
@@ -2100,12 +2194,15 @@ function runAll(caseId, from){
     const cue = c.cueCard || {};
     let h = head() +
       (cue.setting ? '<details style="margin:8px 0"><summary class="linkbtn">Cue card 보기</summary><div class="meta" style="margin-top:6px">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div></details>' : "") +
-      '<details'+(A.i === 0 && !A.playing ? " open" : "")+'><summary class="linkbtn">시간 분배 · 키워드 ('+c.blocks.length+'블록)</summary>' + plan() + '</details>' +
+      '<details'+(A.i === 0 && !A.playing ? " open" : "")+'><summary class="linkbtn">'+(NZ ? '시간분배표 (단계 '+planCount(NZ).st+' · 블록 '+planCount(NZ).bl+')' : '시간 분배 · 키워드 ('+c.blocks.length+'블록)')+'</summary>' + plan() + '</details>' +
       '<div class="seg" id="aKo" style="margin:10px 0 4px"><button data-v="1" class="'+(AOPT.ko?"on":"")+'">영어 + 한국어</button><button data-v="0" class="'+(!AOPT.ko?"on":"")+'">영어만</button></div>';
-    let last = -1;
+    let last = -1, lastStg = null;
     T.forEach((x, k) => {
       if(x.b !== last){
         last = x.b; const b = c.blocks[x.b], kk = K[x.b];
+        const nb = NZ && NM[x.b] >= 0 ? NZ.blocks[NM[x.b]] : null;      // 단계가 바뀌는 곳에 단계 제목
+        if(nb && nb.stage !== lastStg){ lastStg = nb.stage; const si = ptStageInfo(nb);
+          h += '<div class="n3stage" style="margin-top:26px"><b>'+esc(si.name)+'</b>'+(si.range ? '<span>'+esc(si.range)+(si.dur ? ' ('+esc(si.dur)+')' : "")+'</span>' : "")+'</div>'; }
         h += '<div class="ablk'+(A.playing && T[A.i] && T[A.i].b === x.b ? " now" : "")+'" id="ab'+x.b+'"><div class="an">'+esc(bname(b, x.b))+'</div>' +
           '<div class="at">⏱ '+esc(b.start || "")+' → '+esc(b.end || "")+' · '+mmssT(b.sec || 60)+'</div>' +
           (kk.kw.length ? '<div class="ak">'+kk.kw.map(w => '<span>'+esc(w)+'</span>').join("")+'</div>' : "") +
@@ -2117,7 +2214,10 @@ function runAll(caseId, from){
     });
     $("runBody").innerHTML = h;
     document.querySelectorAll("#runBody .turn.tap").forEach(e => e.onclick = () => jump(+e.dataset.i));
-    document.querySelectorAll("#runBody tr.go").forEach(e => e.onclick = () => { const k = firstOf(+e.dataset.b); if(k >= 0) jump(k); });
+    document.querySelectorAll("#runBody table.kt tr.go").forEach(e => e.onclick = () => { const k = firstOf(+e.dataset.b); if(k >= 0) jump(k); });
+    document.querySelectorAll("#runBody table.pt tr.go").forEach(e => e.onclick = () => {   // Nazia 블록 → 그 시간의 첫 대본 블록
+      const j = +e.dataset.n; let i = NM.indexOf(j); if(i < 0) i = NM.findIndex(x => x > j); if(i < 0) return;
+      const k = firstOf(i); if(k >= 0) jump(k); });
     document.querySelectorAll("#aKo button").forEach(e => e.onclick = () => { AOPT.ko = e.dataset.v === "1"; draw(); scrollNow(); });
     bar(T.length ? A.i / T.length : 0);
     const cb = T[A.i] ? T[A.i].b : 0;
@@ -2274,6 +2374,7 @@ function runKr(caseId, from){
       const cue = c.cueCard || {};
       h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
         (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' +
+        planPeek(n3OfCase(c)) +
         '<label>방식</label><div class="seg" id="kMode">' +
         '<button data-v="1" class="'+(KOPT.ai?"on":"")+'">AI 환자와 대화<br><small>음성 인식 · Claude 채점</small></button>' +
         '<button data-v="0" class="'+(!KOPT.ai?"on":"")+'">혼자 하기<br><small>모범 대사 보면서</small></button></div>';
@@ -2301,7 +2402,7 @@ function runKr(caseId, from){
       }
     }else{
       const s = segs[K.i];
-      h = krClock(K.sec, tgt) + '<div style="margin-top:14px">' + segs.slice(Math.max(0, K.i - 4), K.i).map(segHTML).join("");
+      h = krClock(K.sec, tgt) + planToggle(n3OfCase(c), "kPlanBtn", 600 - K.sec * 600 / (tgt || 600)) + '<div style="margin-top:14px">' + segs.slice(Math.max(0, K.i - 4), K.i).map(segHTML).join("");
       if(s.who === "pt"){
         h += '<div class="one pt" id="cur"><div class="who">PATIENT</div><div class="ko">'+esc(koLine(s.lines[0]))+'</div></div>';
       }else{
@@ -2312,6 +2413,7 @@ function runKr(caseId, from){
       h += '</div><p class="counter">'+(K.i+1)+' / '+segs.length+'</p>';
     }
     $("runBody").innerHTML = h;
+    if($("kPlanBtn")) $("kPlanBtn").onclick = () => { PTOPT.on = !PTOPT.on; draw(); };
     document.querySelectorAll("#kTts button").forEach(x => x.onclick = () => { KOPT.tts = x.dataset.v === "1"; draw(); });
     document.querySelectorAll("#kMode button").forEach(x => x.onclick = () => { KOPT.ai = x.dataset.v === "1"; draw(); });
     document.querySelectorAll("#kFree button").forEach(x => x.onclick = () => { KOPT.free = x.dataset.v === "1"; draw(); });
@@ -2502,6 +2604,7 @@ function runKrAI(caseId){
   const c = CASES.find(x => x.id === caseId); if(!c) return;
   const tgt = caseSec(c), T = krTurns(c), checks = krChecks(c);
   const PT_N = T.filter(t => t.who === "pt").length;
+  const NZ = n3OfCase(c);
   openRun(c.code + " · 한글 롤플레이 (AI 환자)", shortTitle(c));
   resetAttempt();
   const W = { state:"pt", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false,
@@ -2517,6 +2620,7 @@ function runKrAI(caseId){
     let h = krClock(W.sec, tgt, W.state === "think") +
       '<button class="linkbtn" id="kHintBtn">'+(WOPT.hint ? "▾ 꼭 말할 것 숨기기" : "▸ 꼭 말할 것 보기 (힌트)")+'</button>' +
       (WOPT.hint ? '<ol style="margin:4px 0 0;padding-left:22px;font-size:14px">'+checks.map(x => '<li>'+esc(x)+'</li>').join("")+'</ol>' : "") +
+      '<br>' + planToggle(NZ, "kPlanBtn", 600 - W.sec * 600 / (tgt || 600)) +
       '<div style="margin-top:14px">' + W.log.map((x, i) =>
         '<div class="turn '+x.who+(i === W.log.length - 1 ? " now" : "")+'"'+(i === W.log.length - 1 ? ' id="kLast"' : "")+'><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div>' +
         '<div class="en">'+esc(x.en)+'</div></div>').join("") + '</div>';
@@ -2525,6 +2629,7 @@ function runKrAI(caseId){
     if(W.note) h += '<div class="heard"><div class="er">'+esc(W.note)+'</div></div>';
     $("runBody").innerHTML = h;
     $("kHintBtn").onclick = () => { WOPT.hint = !WOPT.hint; draw(); };
+    if($("kPlanBtn")) $("kPlanBtn").onclick = () => { PTOPT.on = !PTOPT.on; draw(); };
     const last = $("kLast"); if(last) last.scrollIntoView({ block:"center", behavior:"smooth" });
     const endB = { label:"■ 끝내기", cls:"sec", go:endAll };
     if(W.state === "me") dock([endB, { label:"🎤 다 말했어요", cls:"live", go:myDone }]);
@@ -2824,6 +2929,7 @@ function runFull(caseId, from){
   LS.set("chk.case", c.id);
   const T = krTurns(c), checks = fullChecks(c);
   const PT_N = T.filter(t => t.who === "pt").length;
+  const NZ = n3OfCase(c);                           // 과목별 PDF 시간분배표 (단계 → 블록)
   openRun(c.code + " · 전체 롤플레이", shortTitle(c));
   resetAttempt();
   const W = { state:"ready", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false, warned:false };
@@ -2837,7 +2943,7 @@ function runFull(caseId, from){
   const drawReady = () => {
     const cue = c.cueCard || {};
     let h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · 영어</div><div class="en">'+esc(shortTitle(c))+'</div>' +
-      (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>';
+      (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' + planPeek(NZ);
     if(!fullAIok()){
       h += '<p class="note" style="color:var(--red)">' + (!canMic() ? "이 브라우저는 음성 인식이 안 됩니다(크롬 · Edge 권장)." :
            !AI.key ? "Claude 키가 없습니다. 롤플레이 페이지(index.html)나 OSCE 확인 페이지에서 먼저 넣으세요." :
@@ -2858,8 +2964,9 @@ function runFull(caseId, from){
     if(R.W !== W || W.state === "ready" || W.state === "done" || W.state === "grading") return;
     let h = krClock(W.sec, FULL_SEC, W.state === "think") +
       (W.warned ? '<p class="note" style="color:var(--amber);margin:6px 0 0">9분이 지났어요. 요약하고 질문 받고 마무리하세요.</p>' : "") +
-      '<button class="linkbtn" id="fHintBtn">'+(FOPT.hint ? "▾ 블록 흐름 숨기기" : "▸ 블록 흐름 보기 (힌트)")+'</button>' +
-      (FOPT.hint ? '<ol style="margin:4px 0 0;padding-left:22px;font-size:14px">'+c.blocks.map(b => '<li>'+esc(untag(b.name || ""))+(b.todo ? ' <span style="color:var(--ink-soft)">— '+esc(untag(b.todo))+'</span>' : "")+'</li>').join("")+'</ol>' : "") +
+      '<button class="linkbtn" id="fHintBtn">'+(FOPT.hint ? (NZ ? "▾ 시간분배표 숨기기" : "▾ 블록 흐름 숨기기") : (NZ ? "▸ 시간분배표 보기 (힌트)" : "▸ 블록 흐름 보기 (힌트)"))+'</button>' +
+      (FOPT.hint && NZ ? planHTML(NZ, { cur: planAt(NZ, FULL_SEC - W.sec), divya: false }) : "") +
+      (FOPT.hint && !NZ ? '<ol style="margin:4px 0 0;padding-left:22px;font-size:14px">'+c.blocks.map(b => '<li>'+esc(untag(b.name || ""))+(b.todo ? ' <span style="color:var(--ink-soft)">— '+esc(untag(b.todo))+'</span>' : "")+'</li>').join("")+'</ol>' : "") +
       '<div style="margin-top:14px">' + W.log.map((x, i) =>
         '<div class="turn '+x.who+(i === W.log.length - 1 ? " now" : "")+'"'+(i === W.log.length - 1 ? ' id="fLast"' : "")+'><div class="who">'+(x.who === "dr" ? "나 (Dentist)" : "Patient")+'</div>' +
         '<div class="en">'+esc(x.en)+'</div></div>').join("") + '</div>';
