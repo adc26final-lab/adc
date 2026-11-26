@@ -433,7 +433,22 @@ function catOf(name){ for(const [k, r] of CAT_RULES) if(r.test(String(name||"").
 const mmssT = x => { x = Math.max(0, Math.round(x||0)); return Math.floor(x/60) + ":" + String(x%60).padStart(2,"0"); };
 const normT = x => String(x||"").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 const wordsOf = x => new Set(normT(x).split(" ").filter(w => w.length > 2 && !["you","the","and","that","what","will","are","your","have","for","not","can","but","this","was","with"].includes(w)));
-function shortTitle(c){ return String(c.title || c.id).replace(/\s*[—–-]\s.*$/, "").replace(/\s*\(.*$/, "").trim(); }
+function shortTitle(c){ return String(c.title || c.id).replace(/^\s*D\d+-\d+[a-z]?\s*[·:]\s*/i, "").replace(/\s*[—–-]\s.*$/, "").replace(/\s*\(.*$/, "").trim(); }
+/* 화면에 보이는 케이스 번호: Nazia 강의 코드(D3-2 등)는 숨기고 과목 번호(4-6 등)만 쓴다 */
+const ctag = c => String(c.cat || "");
+const cpre = c => c.cat ? c.cat + " · " : "";
+/* 대사 출처 표시([Divya] · [Zinnerah] · [수정] 등)는 지운다. [창작]만 남긴다 */
+const SRC_TAG = /\s*\[(?!창작\])[^\[\]\n]{1,30}\]/g;
+const dropTags = x => typeof x === "string" ? x.replace(SRC_TAG, "").replace(/[ \t]{2,}/g, " ").trim() : x;
+function cleanCase(c){
+  (c.blocks || []).forEach(b => {
+    (b.turns || []).forEach(t => { t.en = dropTags(t.en); t.ko = dropTags(t.ko); });
+    if(Array.isArray(b.key)) b.key = b.key.map(dropTags);
+    if(Array.isArray(b.mustsay)) b.mustsay = b.mustsay.map(dropTags);
+    if(typeof b.todo === "string") b.todo = dropTags(b.todo);
+  });
+  return c;
+}
 
 /* must-say · curveball 카드를 블록에 붙인다. must-say는 [블록 이름]으로, curveball은 환자 대사와 가장 비슷한 블록으로 */
 function deckFor(c){
@@ -470,7 +485,7 @@ function loadData(){
   if(!Array.isArray(idx)) idx = [];
   idx.map(x => typeof x === "string" ? x : x && x.id).filter(Boolean).forEach(id => {
     const c = LS.get("osce.c." + id, null);
-    if(c && Array.isArray(c.blocks) && c.blocks.length) CASES.push(c);
+    if(c && Array.isArray(c.blocks) && c.blocks.length) CASES.push(cleanCase(c));
   });
   const dn = c => { const k = String(c.code||"").match(/\d+/g); return k ? (+k[0])*100 + (+(k[1]||0)) : 9999; };
   CASES.forEach(c => { c._subj = subjOf(c); });
@@ -490,13 +505,13 @@ function loadData(){
       const checks = todo.split(/\s*·\s*/).filter(Boolean).concat((b.mustsay || []).map(m => "말하기: " + m));
       const key = c.code + "#" + (b.no || i+1);
       SECS.push({
-        key, code:key, label: c.code + " " + (CIRC[i] || "#" + (i+1)),
+        key, code:key, label: (c.cat ? c.cat + " " : "") + (CIRC[i] || "#" + (i+1)),
         caseId:c.id, caseCode:c.code, caseCat:c.cat || "", caseShort: shortTitle(c), caseTitle: c.title || "",
         subj:c._subj, idx:i, n:c.blocks.length, title:b.name, cat:catOf(b.name),
         todo, sec:b.sec || 60, start:b.start || "", end:b.end || "", keyLines:b.key || [], mustsay:b.mustsay || [],
         script, checks, variants: cards[i] || [],
         persona: (c.patient && c.patient.persona) || "",
-        partTitle: (c.cat ? c.cat + " · " : "") + shortTitle(c),
+        partTitle: shortTitle(c),
         info: { "목표 시간": mmssT(b.sec || 60), "기본 시나리오": setting }
       });
     });
@@ -1273,7 +1288,7 @@ let SELCASE = null;
 function drawCaseMenu(c){
   FROM = "case"; SELCASE = c.id;
   show("s-pick");
-  $("pickTitle").textContent = c.code + " · " + shortTitle(c);
+  $("pickTitle").textContent = cpre(c) + shortTitle(c);
   const cue = c.cueCard || {};
   $("pickLede").textContent = cue.setting || "";
   const rows = SECS.filter(x => x.caseId === c.id), done = rows.filter(x => isDone(x.code)).length;
@@ -1319,7 +1334,7 @@ function drawPick(mode){
       if(c._subj !== grp){ grp = c._subj; h += '</div></div><div class="subj">'+esc(subjName(grp))+'</div><div class="part open"><div class="list" style="border-top:0">'; }
       const rows = SECS.filter(x => x.caseId === c.id), done = rows.filter(x => isDone(x.code)).length;
       h += '<button class="row caserow" data-k="'+esc(c.id)+'"'+(c.id === lastCase ? ' style="background:var(--teal-soft, #E6F2F1)"' : "")+'>' +
-        '<span class="cd">'+esc(c.code)+'</span><span class="tt">'+(c.cat ? '<span style="color:var(--teal)">'+esc(c.cat)+'</span> ' : "")+esc(shortTitle(c)) +
+        '<span class="cd">'+esc(ctag(c))+'</span><span class="tt">'+esc(shortTitle(c)) +
         '<div class="st">블록 '+done+' / '+rows.length+(c.id === lastCase ? ' · 최근에 한 케이스' : "")+'</div></span></button>';
     });
     h += '</div></div>';
@@ -2154,7 +2169,7 @@ function drawAll(){
   CASES.forEach(c => {
     if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
     h += '<div class="part"><button class="row arow" data-k="'+esc(c.id)+'"><span class="cd">'+esc(c.cat || "")+'</span>' +
-      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">블록 '+c.blocks.length+'개 · '+mmssT(caseSec(c))+' · '+allStat(c.id)+'</div></span></button></div>';
+      '<span class="tt">'+esc(shortTitle(c))+'<div class="st">블록 '+c.blocks.length+'개 · '+mmssT(caseSec(c))+' · '+allStat(c.id)+'</div></span></button></div>';
   });
   $("parts").innerHTML = h;
   document.querySelectorAll("#parts .arow").forEach(b => b.onclick = () => runAll(b.dataset.k, "all"));
@@ -2167,7 +2182,7 @@ function runAll(caseId, from){
   const T = [];                                   // 전체 대사를 한 줄로: {b, t}
   c.blocks.forEach((b, bi) => (b.turns || []).forEach(t => T.push({ b: bi, t: t })));
   const firstOf = bi => T.findIndex(x => x.b === bi);
-  openRun(c.code + " · 스크립트 전체 듣기", shortTitle(c));
+  openRun(cpre(c) + "스크립트 전체 듣기", shortTitle(c));
   const A = { i: 0, playing: false, gen: 0, t0: 0, acc: 0, timer: null };
   R.A = A;
   const bname = (b, i) => (CIRC_A[i] || (i + 1) + ".") + " " + (b.name || "블록 " + (i + 1));
@@ -2283,7 +2298,7 @@ function drawKr(){
   CASES.forEach(c => {
     if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
     h += '<div class="part"><button class="row krow" data-k="'+esc(c.id)+'"><span class="cd">'+esc(c.cat || "")+'</span>' +
-      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">'+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button></div>';
+      '<span class="tt">'+esc(shortTitle(c))+'<div class="st">'+mmssT(caseSec(c))+' · '+krStat(c.id)+'</div></span></button></div>';
   });
   $("parts").innerHTML = h;
   document.querySelectorAll("#parts .krow").forEach(b => b.onclick = () => runKr(b.dataset.k, "kr"));
@@ -2358,7 +2373,7 @@ function runKr(caseId, from){
   R.krFrom = from || "kr";
   LS.set("chk.case", c.id);
   const segs = krSegs(c), tgt = caseSec(c);
-  openRun(c.code + " · 한글 롤플레이", shortTitle(c));
+  openRun(cpre(c) + "한글 롤플레이", shortTitle(c));
   const K = { state:"ready", i:0, t0:0, sec:0, timer:null, veil:true };
   R.K = K;
   readTimerStart();
@@ -2372,7 +2387,7 @@ function runKr(caseId, from){
     let h = "";
     if(K.state === "ready"){
       const cue = c.cueCard || {};
-      h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
+      h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(cpre(c))+'10분 롤플레이 전체 · '+mmss(tgt)+'</div><div class="en">'+esc(shortTitle(c))+'</div>' +
         (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' +
         planPeek(n3OfCase(c)) +
         '<label>방식</label><div class="seg" id="kMode">' +
@@ -2458,7 +2473,7 @@ function runKr(caseId, from){
     saveST();
     const [jc, jt] = judgeTime(K.sec, tgt), dev = Math.round((K.sec - tgt) / tgt * 100);
     const past = list.slice(-6, -1);
-    openRun(c.code + " · 한글 롤플레이 결과", shortTitle(c));
+    openRun(cpre(c) + "한글 롤플레이 결과", shortTitle(c));
     R.K = K;
     $("runBody").innerHTML = '<div class="clockbox"><div class="row1"><div class="big '+(jc==="ok"?"":jc==="bad"?"over":"warn")+'">'+mmss(K.sec)+'</div>' +
       '<div class="tgt">목표 <b>'+mmss(tgt)+'</b> (영어 대본 기준)<br>'+(dev>0?"+":"")+dev+'%</div></div></div>' +
@@ -2584,7 +2599,7 @@ function krGradeUser(c, checks, log){
     "\n\nJudge only the candidate's lines.";
 }
 function krCopyPrompt(c, checks, log, sec){
-  return "[ADC Part 2 OSCE 한국어 롤플레이 채점 요청] " + c.code + " " + shortTitle(c) + " · 걸린 시간 " + mmssT(sec) + "\n\n" +
+  return "[ADC Part 2 OSCE 한국어 롤플레이 채점 요청] " + cpre(c) + shortTitle(c) + " · 걸린 시간 " + mmssT(sec) + "\n\n" +
     "아래는 한국인 치과의사가 영어 ADC OSCE 시험 전에 흐름을 익히려고 10분 상담을 한국어로 연습한 기록입니다. 후보자의 말은 음성 인식 결과라서 인식 오류 · 군말 · 띄어쓰기는 무시해 주세요.\n" +
     "한국어로 답해 주세요:\n" +
     "1) 체크리스트 항목마다 번호 · 말함/빠짐 · 근거가 된 후보자 말(짧게). 표현이 달라도 뜻이 맞으면 말함, 막연한 암시는 빠짐. AVOID 항목은 하지 말아야 할 것 — 하지 않았으면 지킴, 했으면 어김.\n" +
@@ -2605,7 +2620,7 @@ function runKrAI(caseId){
   const tgt = caseSec(c), T = krTurns(c), checks = krChecks(c);
   const PT_N = T.filter(t => t.who === "pt").length;
   const NZ = n3OfCase(c);
-  openRun(c.code + " · 한글 롤플레이 (AI 환자)", shortTitle(c));
+  openRun(cpre(c) + "한글 롤플레이 (AI 환자)", shortTitle(c));
   resetAttempt();
   const W = { state:"pt", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false,
               used:new Set(), free:KOPT.free };
@@ -2701,9 +2716,9 @@ function runKrAI(caseId){
     const rec = { s:Math.round(W.sec), t:tgt, ts:Date.now(), ai:true };
     const list = (ST.kr[c.id] = (ST.kr[c.id] || []).concat(rec).slice(-10));
     saveST();
-    openRun(c.code + " · 한글 롤플레이 결과", shortTitle(c));
+    openRun(cpre(c) + "한글 롤플레이 결과", shortTitle(c));
     R.W = W;
-    const copyTexts = { conv: () => "[한국어 롤플레이 대화] " + c.code + " " + shortTitle(c) + " · " + mmssT(W.sec) + "\n\n" + convText(W.log),
+    const copyTexts = { conv: () => "[한국어 롤플레이 대화] " + cpre(c) + shortTitle(c) + " · " + mmssT(W.sec) + "\n\n" + convText(W.log),
                         prompt: () => krCopyPrompt(c, checks, W.log, W.sec) };
     const said = W.log.some(x => x.who === "dr");
     const first = SECS.find(x => x.caseId === c.id && x.idx === 0);
@@ -2792,7 +2807,7 @@ function drawFull(){
   CASES.forEach(c => {
     if(c._subj !== grp){ grp = c._subj; h += '<div class="subj">'+esc(subjName(grp))+'</div>'; }
     h += '<div class="part"><button class="row frow" data-k="'+esc(c.id)+'"><span class="cd">'+esc(c.cat || "")+'</span>' +
-      '<span class="tt">'+esc(c.code)+' · '+esc(shortTitle(c))+'<div class="st">'+fullStat(c.id)+'</div></span></button></div>';
+      '<span class="tt">'+esc(shortTitle(c))+'<div class="st">'+fullStat(c.id)+'</div></span></button></div>';
   });
   $("parts").innerHTML = h;
   document.querySelectorAll("#parts .frow").forEach(b => b.onclick = () => runFull(b.dataset.k, "full"));
@@ -2869,7 +2884,7 @@ function fullGradeUser(c, checks, log, sec){
     "\n\nJudge only the candidate's lines.";
 }
 function fullCopyPrompt(c, checks, log, sec){
-  return "[ADC Part 2 OSCE 영어 롤플레이 채점 요청] " + c.code + " " + shortTitle(c) + "\n\n" +
+  return "[ADC Part 2 OSCE 영어 롤플레이 채점 요청] " + cpre(c) + shortTitle(c) + "\n\n" +
     "You are an ADC Part 2 OSCE examiner (Australian Dental Council, communication station). Grade this 10-minute consultation that a Korean dentist practised in English with a simulated patient. " +
     "The candidate's words come from speech recognition: ignore recognition errors, fillers and small grammar slips. Judge meaning, clinical safety and communication. " +
     "The model consultation is only one example, not the required wording or order.\n" +
@@ -2930,7 +2945,7 @@ function runFull(caseId, from){
   const T = krTurns(c), checks = fullChecks(c);
   const PT_N = T.filter(t => t.who === "pt").length;
   const NZ = n3OfCase(c);                           // 과목별 PDF 시간분배표 (단계 → 블록)
-  openRun(c.code + " · 전체 롤플레이", shortTitle(c));
+  openRun(cpre(c) + "전체 롤플레이", shortTitle(c));
   resetAttempt();
   const W = { state:"ready", acc:0, seg:0, sec:0, timer:null, log:[], tok:0, ending:false, userStop:false, note:"", thinkMsg:"", ptEnd:false, warned:false };
   R.W = W;
@@ -2942,7 +2957,7 @@ function runFull(caseId, from){
 
   const drawReady = () => {
     const cue = c.cueCard || {};
-    let h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(c.code)+' · 10분 롤플레이 전체 · 영어</div><div class="en">'+esc(shortTitle(c))+'</div>' +
+    let h = readTimerHTML() + '<div class="topic"><div class="cd">'+esc(cpre(c))+'10분 롤플레이 전체 · 영어</div><div class="en">'+esc(shortTitle(c))+'</div>' +
       (cue.setting ? '<div class="sc">'+esc(cue.setting)+(cue.tasks && cue.tasks.length ? '<br><b>Task:</b> '+cue.tasks.map(esc).join(" ") : "")+'</div>' : "") + '</div>' + planPeek(NZ);
     if(!fullAIok()){
       h += '<p class="note" style="color:var(--red)">' + (!canMic() ? "이 브라우저는 음성 인식이 안 됩니다(크롬 · Edge 권장)." :
@@ -3047,9 +3062,9 @@ function runFull(caseId, from){
     const rec = { s:Math.round(W.sec), ts:Date.now() };
     const list = (ST.full[c.id] = (ST.full[c.id] || []).concat(rec).slice(-10));
     saveST();
-    openRun(c.code + " · 전체 롤플레이 결과", shortTitle(c));
+    openRun(cpre(c) + "전체 롤플레이 결과", shortTitle(c));
     R.W = W;
-    const copyTexts = { conv: () => "[영어 롤플레이 대화] " + c.code + " " + shortTitle(c) + " · " + mmssT(W.sec) + "\n\n" + convText(W.log),
+    const copyTexts = { conv: () => "[영어 롤플레이 대화] " + cpre(c) + shortTitle(c) + " · " + mmssT(W.sec) + "\n\n" + convText(W.log),
                         prompt: () => fullCopyPrompt(c, checks, W.log, W.sec) };
     const said = W.log.some(x => x.who === "dr");
     const showGrading = msg => {
